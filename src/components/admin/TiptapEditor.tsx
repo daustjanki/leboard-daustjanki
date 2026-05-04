@@ -6,12 +6,19 @@ import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
-import { Bold, Italic, Strikethrough, Heading1, Heading2, List, ListOrdered, Quote, Undo, Redo, Link as LinkIcon, ImageIcon, X, Upload, ChevronDown, LayoutGrid, Table as TableIcon, GalleryHorizontal, MessageSquareQuote } from 'lucide-react';
+import { Bold, Italic, Strikethrough, Heading1, Heading2, List, ListOrdered, Quote, Undo, Redo, Link as LinkIcon, ImageIcon, X, Upload, ChevronDown, LayoutGrid, Table as TableIcon, GalleryHorizontal, MessageSquareQuote, ChevronRight, Code2, Video, Link2, FileText } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useEffect, useState } from 'react';
 import { AccordionBlock, TabsBlock, SimpleTableBlock, ImageCarouselBlock, QuoteCarouselBlock } from './editor/blockNodes';
+import { ToggleBlock } from './editor/toggleNode';
+import { VideoBlock, BookmarkBlock, FileAttachmentBlock } from './editor/mediaNodes';
 import { batchUploadImages } from '@/lib/uploadImage';
 import { toast } from 'sonner';
+import { Markdown } from 'tiptap-markdown';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+import { createLowlight, common } from 'lowlight';
+
+const lowlight = createLowlight(common);
 
 // Custom Extension to center image
 const CenteredImage = Image.extend({
