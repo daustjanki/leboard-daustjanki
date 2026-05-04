@@ -376,7 +376,11 @@ type Chunk =
   | { type: 'tabs'; items: { label: string; body: string }[] }
   | { type: 'simple-table'; headers: string[]; rows: string[][] }
   | { type: 'image-carousel'; items: { src: string; alt?: string; caption?: string }[] }
-  | { type: 'quote-carousel'; items: { quote: string; attribution?: string }[] };
+  | { type: 'quote-carousel'; items: { quote: string; attribution?: string }[] }
+  | { type: 'toggle'; title: string; childrenHtml: string; defaultOpen: boolean }
+  | { type: 'bookmark'; url: string; title: string; description: string; image: string; siteName: string }
+  | { type: 'file-attachment'; url: string; name: string; size: string }
+  | { type: 'video'; src: string; provider: string };
 
 function parseContent(html: string): Chunk[] {
   if (typeof window === 'undefined') {
@@ -406,6 +410,44 @@ function parseContent(html: string): Chunk[] {
           });
           else if (block === 'image-carousel') chunks.push({ type: 'image-carousel', items: JSON.parse(el.getAttribute('data-items') || '[]') });
           else if (block === 'quote-carousel') chunks.push({ type: 'quote-carousel', items: JSON.parse(el.getAttribute('data-items') || '[]') });
+          else if (block === 'toggle' && el.tagName.toLowerCase() === 'details') {
+            // First child <p> is the summary/title; remaining children are body.
+            const children = Array.from(el.children);
+            const titleEl = children.find((c) => c.tagName.toLowerCase() === 'p');
+            const title = (titleEl?.textContent || '').trim();
+            const bodyHtml = children
+              .filter((c) => c !== titleEl)
+              .map((c) => (c as HTMLElement).outerHTML)
+              .join('');
+            chunks.push({
+              type: 'toggle',
+              title: title || 'Toggle',
+              childrenHtml: bodyHtml,
+              defaultOpen: el.hasAttribute('open'),
+            });
+          } else if (block === 'bookmark') {
+            chunks.push({
+              type: 'bookmark',
+              url: el.getAttribute('href') || '',
+              title: el.getAttribute('data-title') || '',
+              description: el.getAttribute('data-description') || '',
+              image: el.getAttribute('data-image') || '',
+              siteName: el.getAttribute('data-site') || '',
+            });
+          } else if (block === 'file-attachment') {
+            chunks.push({
+              type: 'file-attachment',
+              url: el.getAttribute('href') || '',
+              name: el.getAttribute('data-name') || '',
+              size: el.getAttribute('data-size') || '',
+            });
+          } else if (block === 'video') {
+            chunks.push({
+              type: 'video',
+              src: el.getAttribute('data-src') || '',
+              provider: el.getAttribute('data-provider') || '',
+            });
+          }
         } catch {
           // ignore malformed
         }
@@ -441,6 +483,21 @@ export function BlogContent({ html, className }: { html: string; className?: str
             return <ImageCarouselBlock key={i} items={c.items} />;
           case 'quote-carousel':
             return <QuoteCarouselBlock key={i} items={c.items} />;
+          case 'toggle':
+            return (
+              <ToggleBlockView
+                key={i}
+                title={c.title}
+                childrenHtml={c.childrenHtml}
+                defaultOpen={c.defaultOpen}
+              />
+            );
+          case 'bookmark':
+            return <BookmarkCardView key={i} {...c} />;
+          case 'file-attachment':
+            return <FileAttachmentView key={i} url={c.url} name={c.name} size={c.size} />;
+          case 'video':
+            return <VideoBlockView key={i} src={c.src} provider={c.provider} />;
         }
       })}
     </div>
