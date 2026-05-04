@@ -40,16 +40,33 @@ export function TiptapEditor({ content, onChange }: { content: string, onChange:
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        // Disable default codeBlock so we can replace with lowlight version
+        codeBlock: false,
+      }),
+      Markdown.configure({
+        html: true,
+        tightLists: true,
+        bulletListMarker: '-',
+        linkify: true,
+        breaks: false,
+        transformPastedText: true,
+        transformCopiedText: false,
+      }),
+      CodeBlockLowlight.configure({ lowlight, defaultLanguage: 'plaintext' }),
       Typography,
       CenteredImage,
       Link.configure({ openOnClick: false }),
-      Placeholder.configure({ placeholder: 'Tulis ceritamu di sini... (gunakan # untuk Heading 1, ## Heading 2, > kutipan, - list, dst)' }),
+      Placeholder.configure({ placeholder: 'Tulis ceritamu di sini... (gunakan # untuk Heading 1, ## Heading 2, > kutipan, - list, >> toggle, ``` code, dst)' }),
       AccordionBlock,
       TabsBlock,
       SimpleTableBlock,
       ImageCarouselBlock,
       QuoteCarouselBlock,
+      ToggleBlock,
+      VideoBlock,
+      BookmarkBlock,
+      FileAttachmentBlock,
     ],
     content,
     onUpdate: ({ editor }) => {
