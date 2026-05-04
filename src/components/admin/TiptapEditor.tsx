@@ -186,6 +186,18 @@ export function TiptapEditor({ content, onChange }: { content: string, onChange:
           onClick={() => editor.chain().focus().insertContent({ type: 'quoteCarouselBlock' }).run()}>
           <MessageSquareQuote className="w-4 h-4" />
         </Button>
+        <Button variant="ghost" size="icon" title="Sisipkan Video (YouTube/Vimeo/MP4)"
+          onClick={() => editor.chain().focus().insertContent({ type: 'videoBlock' }).run()}>
+          <Video className="w-4 h-4" />
+        </Button>
+        <Button variant="ghost" size="icon" title="Sisipkan Web Bookmark"
+          onClick={() => editor.chain().focus().insertContent({ type: 'bookmarkBlock' }).run()}>
+          <Link2 className="w-4 h-4" />
+        </Button>
+        <Button variant="ghost" size="icon" title="Sisipkan File / PDF"
+          onClick={() => editor.chain().focus().insertContent({ type: 'fileAttachmentBlock' }).run()}>
+          <FileText className="w-4 h-4" />
+        </Button>
 
         <div className="flex-1" />
         <Button variant="ghost" size="icon" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()}><Undo className="w-4 h-4" /></Button>
