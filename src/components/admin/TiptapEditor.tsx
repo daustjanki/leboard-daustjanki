@@ -136,6 +136,18 @@ export function TiptapEditor({ content, onChange }: { content: string, onChange:
         <Button variant="ghost" size="icon" onClick={() => editor.chain().focus().toggleBulletList().run()} className={editor.isActive('bulletList') ? 'bg-secondary' : ''}><List className="w-4 h-4" /></Button>
         <Button variant="ghost" size="icon" onClick={() => editor.chain().focus().toggleOrderedList().run()} className={editor.isActive('orderedList') ? 'bg-secondary' : ''}><ListOrdered className="w-4 h-4" /></Button>
         <Button variant="ghost" size="icon" onClick={() => editor.chain().focus().toggleBlockquote().run()} className={editor.isActive('blockquote') ? 'bg-secondary' : ''}><Quote className="w-4 h-4" /></Button>
+        <Button variant="ghost" size="icon" title="Code Block (```)" onClick={() => editor.chain().focus().toggleCodeBlock().run()} className={editor.isActive('codeBlock') ? 'bg-secondary' : ''}><Code2 className="w-4 h-4" /></Button>
+        <Button variant="ghost" size="icon" title="Toggle Block (>>)"
+          onClick={() => editor.chain().focus().insertContent({
+            type: 'toggleBlock',
+            attrs: { open: true },
+            content: [
+              { type: 'paragraph', content: [{ type: 'text', text: 'Toggle title' }] },
+              { type: 'paragraph', content: [{ type: 'text', text: 'Hidden content...' }] },
+            ],
+          }).run()}>
+          <ChevronRight className="w-4 h-4" />
+        </Button>
         <div className="w-[1px] h-6 bg-border mx-1" />
         <Button variant="ghost" size="icon" onClick={() => {
             const url = window.prompt('URL Tautan:');
