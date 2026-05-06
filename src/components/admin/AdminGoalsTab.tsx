@@ -328,6 +328,7 @@ export function AdminGoalsTab({
                 onClick={() => toggleGroup(node.group.id)}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {!isSystem && <DragHandle />}
                   <Layers className="h-5 w-5 text-primary shrink-0" />
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <span className="font-black text-foreground truncate">
