@@ -790,6 +790,7 @@ export async function firebaseApiFetch(
     (path === '/api/students' ||
       path === '/api/categories' ||
       path === '/api/masterGoals' ||
+      path === '/api/groups' ||
       path === '/api/settings' ||
       path === '/api/admin_users' ||
       path === '/api/posts' ||
