@@ -652,8 +652,23 @@ export function AdminGoalsTab({
                 )}
               </AnimatePresence>
             </Card>
-          );
-        })}
+            );
+          }}
+        </SortableList>
+        {tree.filter((n) => n.group.isSystem).map((node, gi) => (
+          <FallbackGroupCard
+            key={node.group.id}
+            node={node}
+            expandedCats={expandedCats}
+            toggleCat={toggleCat}
+            persistGoalOrder={persistGoalOrder}
+            categories={categories}
+            setEditGoalData={setEditGoalData}
+            setGoalDefaultCategoryId={setGoalDefaultCategoryId}
+            setGoalModalOpen={setGoalModalOpen}
+            setDeleteGoalConfirm={setDeleteGoalConfirm}
+          />
+        ))}
       </div>
 
       {goalModalOpen && (
