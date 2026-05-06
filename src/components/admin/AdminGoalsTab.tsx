@@ -581,7 +581,7 @@ export function AdminGoalsTab({
                                     ) : (
                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                                         <SortableList
-                                          items={catNode.goals.map((g) => ({ id: g.id, mg: g }))}
+                                          items={catNode.goals.map((g: MasterGoal) => ({ id: g.id, mg: g }))}
                                           strategy="grid"
                                           onReorder={(next) =>
                                             persistGoalOrder(catId, next.map((x: any) => ({ id: x.id })))
