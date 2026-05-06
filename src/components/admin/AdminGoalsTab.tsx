@@ -307,10 +307,15 @@ export function AdminGoalsTab({
           </Card>
         )}
         <SortableList
-          items={tree.filter((n) => !n.group.isSystem).map((n) => ({ id: n.group.id, node: n }))}
-          onReorder={(next) => persistGroupOrder(next.map((x) => ({ id: x.id })))}
+          items={tree.map((n) => ({ id: n.group.id, node: n }))}
+          onReorder={(next) =>
+            persistGroupOrder(
+              next.map((x: any) => ({ id: x.id })).filter((x) => !tree.find((t) => t.group.id === x.id)?.group.isSystem),
+            )
+          }
         >
-          {({ node }: any, gi: number) => {
+          {(item: any, gi: number) => {
+            const node = item.node as HierarchyGroupNode;
           const expanded = expandedGroups[node.group.id] !== false;
           const isSystem = node.group.isSystem;
           return (
