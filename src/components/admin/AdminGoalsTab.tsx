@@ -186,7 +186,7 @@ export function AdminGoalsTab({
     refreshData();
   };
 
-  // ---- REORDER -----------------------------------------------------------
+  // ---- REORDER (▲▼ buttons) --------------------------------------------
   const reorderGroups = async (id: string, dir: -1 | 1) => {
     const ordered = moveItem(sortByOrder(groups), id, dir);
     if (ordered === groups) return;
@@ -222,6 +222,29 @@ export function AdminGoalsTab({
     if (ordered === siblings) return;
     try {
       await persistReorder("/api/masterGoals/reorder", ordered, { categoryId });
+    } finally {
+      refreshData();
+    }
+  };
+
+  // ---- DnD persistence (full ordered list) -------------------------------
+  const persistGroupOrder = async (next: { id: string }[]) => {
+    try {
+      await persistReorder("/api/groups/reorder", next);
+    } finally {
+      refreshData();
+    }
+  };
+  const persistCategoryOrder = async (groupId: string, next: { id: string }[]) => {
+    try {
+      await persistReorder("/api/categories/reorder", next, { groupId });
+    } finally {
+      refreshData();
+    }
+  };
+  const persistGoalOrder = async (categoryId: string, next: { id: string }[]) => {
+    try {
+      await persistReorder("/api/masterGoals/reorder", next, { categoryId });
     } finally {
       refreshData();
     }
