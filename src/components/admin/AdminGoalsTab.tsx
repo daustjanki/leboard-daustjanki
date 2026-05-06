@@ -306,7 +306,11 @@ export function AdminGoalsTab({
             </p>
           </Card>
         )}
-        {tree.map((node, gi) => {
+        <SortableList
+          items={tree.filter((n) => !n.group.isSystem).map((n) => ({ id: n.group.id, node: n }))}
+          onReorder={(next) => persistGroupOrder(next.map((x) => ({ id: x.id })))}
+        >
+          {({ node }: any, gi: number) => {
           const expanded = expandedGroups[node.group.id] !== false;
           const isSystem = node.group.isSystem;
           return (
