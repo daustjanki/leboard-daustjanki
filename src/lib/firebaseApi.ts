@@ -122,25 +122,50 @@ const mapStudentInput = (s: any) => {
 
 const mapGoalRow = (r: any) => ({
   id: r.id,
+  categoryId: r.category_id ?? undefined,
   categoryName: r.category_name ?? r.categoryName ?? "",
   title: r.title,
   points: r.points,
   description: r.description || "",
+  order: r.order ?? 0,
 });
 
 const mapGoalInput = (g: any) => {
   const out: any = {};
   if (g.categoryName !== undefined) out.category_name = g.categoryName;
+  if (g.categoryId !== undefined) out.category_id = g.categoryId || null;
   if (g.title !== undefined) out.title = g.title;
   if (g.points !== undefined) out.points = g.points;
   if (g.description !== undefined) out.description = g.description;
+  if (g.order !== undefined) out.order = g.order;
   return out;
 };
 
-const mapCategoryRow = (r: any) => ({ id: r.id, name: r.name });
+const mapCategoryRow = (r: any) => ({
+  id: r.id,
+  name: r.name,
+  groupId: r.group_id ?? undefined,
+  order: r.order ?? 0,
+});
 const mapCategoryInput = (c: any) => {
   const out: any = {};
   if (c.name !== undefined) out.name = c.name;
+  if (c.groupId !== undefined) out.group_id = c.groupId || null;
+  if (c.order !== undefined) out.order = c.order;
+  return out;
+};
+
+const mapGroupRow = (r: any) => ({
+  id: r.id,
+  name: r.name,
+  order: r.order ?? 0,
+  isSystem: !!r.is_system,
+});
+const mapGroupInput = (g: any) => {
+  const out: any = {};
+  if (g.name !== undefined) out.name = g.name;
+  if (g.order !== undefined) out.order = g.order;
+  if (g.isSystem !== undefined) out.is_system = g.isSystem;
   return out;
 };
 
