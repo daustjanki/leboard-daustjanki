@@ -580,47 +580,35 @@ export function AdminGoalsTab({
                                       </p>
                                     ) : (
                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                                        {catNode.goals.map((mg, gi2) => (
+                                        <SortableList
+                                          items={catNode.goals.map((g) => ({ id: g.id, mg: g }))}
+                                          strategy="grid"
+                                          onReorder={(next) =>
+                                            persistGoalOrder(catId, next.map((x: any) => ({ id: x.id })))
+                                          }
+                                        >
+                                          {(item: any, gi2: number) => {
+                                            const mg = item.mg as MasterGoal;
+                                            return (
                                           <Card
                                             key={mg.id}
                                             className="rounded-xl border border-border shadow-none hover:shadow-soft transition-shadow group relative"
                                           >
                                             <CardContent className="p-3 space-y-2">
                                               <div className="flex justify-between items-start gap-2">
-                                                <h4
-                                                  className="font-bold text-sm text-foreground leading-tight flex-1 pt-1"
-                                                  title={mg.title}
-                                                >
-                                                  {mg.title}
-                                                </h4>
+                                                <div className="flex items-start gap-1 flex-1 pt-1">
+                                                  <DragHandle />
+                                                  <h4
+                                                    className="font-bold text-sm text-foreground leading-tight flex-1"
+                                                    title={mg.title}
+                                                  >
+                                                    {mg.title}
+                                                  </h4>
+                                                </div>
                                                 <div className="flex items-center gap-1 shrink-0">
                                                   <div className="bg-primary/10 px-2 py-1 rounded-lg text-xs font-black text-primary">
                                                     +{mg.points ?? 0}
                                                   </div>
-                                                  <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-7 w-7"
-                                                    title="Naik"
-                                                    disabled={gi2 === 0}
-                                                    onClick={() =>
-                                                      reorderGoals(catId, mg.id, -1)
-                                                    }
-                                                  >
-                                                    <ArrowUp className="w-3.5 h-3.5" />
-                                                  </Button>
-                                                  <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-7 w-7"
-                                                    title="Turun"
-                                                    disabled={gi2 >= catNode.goals.length - 1}
-                                                    onClick={() =>
-                                                      reorderGoals(catId, mg.id, 1)
-                                                    }
-                                                  >
-                                                    <ArrowDown className="w-3.5 h-3.5" />
-                                                  </Button>
                                                   <SimpleMenu
                                                     options={[
                                                       {
@@ -655,7 +643,9 @@ export function AdminGoalsTab({
                                               )}
                                             </CardContent>
                                           </Card>
-                                        ))}
+                                            );
+                                          }}
+                                        </SortableList>
                                       </div>
                                     )}
                                   </CardContent>
