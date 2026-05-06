@@ -663,8 +663,9 @@ export function AdminGoalsTab({
                               )}
                             </AnimatePresence>
                           </Card>
-                        );
-                      })}
+                          );
+                        }}
+                      </SortableList>
                     </CardContent>
                   </motion.div>
                 )}
