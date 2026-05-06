@@ -435,11 +435,23 @@ export function AdminGoalsTab({
                         </p>
                       )}
 
-                      {node.categories.map((catNode, ci) => {
-                        const catId = catNode.category.id;
-                        const catExpanded = expandedCats[catId] !== false;
-                        const isFallbackCat = catId === FALLBACK_CATEGORY_ID;
-                        return (
+                      <SortableList
+                        items={node.categories.map((c) => ({ id: c.category.id, catNode: c }))}
+                        onReorder={(next) =>
+                          persistCategoryOrder(
+                            node.group.id,
+                            next
+                              .filter((x: any) => x.id !== FALLBACK_CATEGORY_ID)
+                              .map((x: any) => ({ id: x.id })),
+                          )
+                        }
+                      >
+                        {(item: any, ci: number) => {
+                          const catNode = item.catNode;
+                          const catId = catNode.category.id;
+                          const catExpanded = expandedCats[catId] !== false;
+                          const isFallbackCat = catId === FALLBACK_CATEGORY_ID;
+                          return (
                           <Card
                             key={catId}
                             className="rounded-xl border-border overflow-hidden"
