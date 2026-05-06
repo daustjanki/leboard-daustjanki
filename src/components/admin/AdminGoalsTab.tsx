@@ -29,6 +29,7 @@ import {
   FALLBACK_CATEGORY_ID,
   type HierarchyGroupNode,
 } from "@/lib/hierarchy";
+import { SortableList, DragHandle } from "./editor/sortable";
 
 // ---------------------------------------------------------------------------
 // AdminGoalsTab — 3-tier accordion: Group → Category → Goal.
@@ -185,7 +186,7 @@ export function AdminGoalsTab({
     refreshData();
   };
 
-  // ---- REORDER -----------------------------------------------------------
+  // ---- REORDER (▲▼ buttons) --------------------------------------------
   const reorderGroups = async (id: string, dir: -1 | 1) => {
     const ordered = moveItem(sortByOrder(groups), id, dir);
     if (ordered === groups) return;
@@ -221,6 +222,29 @@ export function AdminGoalsTab({
     if (ordered === siblings) return;
     try {
       await persistReorder("/api/masterGoals/reorder", ordered, { categoryId });
+    } finally {
+      refreshData();
+    }
+  };
+
+  // ---- DnD persistence (full ordered list) -------------------------------
+  const persistGroupOrder = async (next: { id: string }[]) => {
+    try {
+      await persistReorder("/api/groups/reorder", next);
+    } finally {
+      refreshData();
+    }
+  };
+  const persistCategoryOrder = async (groupId: string, next: { id: string }[]) => {
+    try {
+      await persistReorder("/api/categories/reorder", next, { groupId });
+    } finally {
+      refreshData();
+    }
+  };
+  const persistGoalOrder = async (categoryId: string, next: { id: string }[]) => {
+    try {
+      await persistReorder("/api/masterGoals/reorder", next, { categoryId });
     } finally {
       refreshData();
     }
@@ -282,7 +306,16 @@ export function AdminGoalsTab({
             </p>
           </Card>
         )}
-        {tree.map((node, gi) => {
+        <SortableList
+          items={tree.map((n) => ({ id: n.group.id, node: n }))}
+          onReorder={(next) =>
+            persistGroupOrder(
+              next.map((x: any) => ({ id: x.id })).filter((x) => !tree.find((t) => t.group.id === x.id)?.group.isSystem),
+            )
+          }
+        >
+          {(item: any, gi: number) => {
+            const node = item.node as HierarchyGroupNode;
           const expanded = expandedGroups[node.group.id] !== false;
           const isSystem = node.group.isSystem;
           return (
@@ -295,6 +328,7 @@ export function AdminGoalsTab({
                 onClick={() => toggleGroup(node.group.id)}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {!isSystem && <DragHandle />}
                   <Layers className="h-5 w-5 text-primary shrink-0" />
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <span className="font-black text-foreground truncate">
@@ -401,11 +435,23 @@ export function AdminGoalsTab({
                         </p>
                       )}
 
-                      {node.categories.map((catNode, ci) => {
-                        const catId = catNode.category.id;
-                        const catExpanded = expandedCats[catId] !== false;
-                        const isFallbackCat = catId === FALLBACK_CATEGORY_ID;
-                        return (
+                      <SortableList
+                        items={node.categories.map((c) => ({ id: c.category.id, catNode: c }))}
+                        onReorder={(next) =>
+                          persistCategoryOrder(
+                            node.group.id,
+                            next
+                              .filter((x: any) => x.id !== FALLBACK_CATEGORY_ID)
+                              .map((x: any) => ({ id: x.id })),
+                          )
+                        }
+                      >
+                        {(item: any, ci: number) => {
+                          const catNode = item.catNode;
+                          const catId = catNode.category.id;
+                          const catExpanded = expandedCats[catId] !== false;
+                          const isFallbackCat = catId === FALLBACK_CATEGORY_ID;
+                          return (
                           <Card
                             key={catId}
                             className="rounded-xl border-border overflow-hidden"
@@ -415,6 +461,7 @@ export function AdminGoalsTab({
                               onClick={() => toggleCat(catId)}
                             >
                               <div className="flex items-center gap-3 flex-1 min-w-0">
+                                {!isFallbackCat && <DragHandle />}
                                 <FolderTree className="h-4 w-4 text-muted-foreground shrink-0" />
                                 {editCatData?.id === catId ? (
                                   <div
@@ -534,47 +581,35 @@ export function AdminGoalsTab({
                                       </p>
                                     ) : (
                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                                        {catNode.goals.map((mg, gi2) => (
+                                        <SortableList
+                                          items={catNode.goals.map((g: MasterGoal) => ({ id: g.id, mg: g }))}
+                                          strategy="grid"
+                                          onReorder={(next) =>
+                                            persistGoalOrder(catId, next.map((x: any) => ({ id: x.id })))
+                                          }
+                                        >
+                                          {(item: any, gi2: number) => {
+                                            const mg = item.mg as MasterGoal;
+                                            return (
                                           <Card
                                             key={mg.id}
                                             className="rounded-xl border border-border shadow-none hover:shadow-soft transition-shadow group relative"
                                           >
                                             <CardContent className="p-3 space-y-2">
                                               <div className="flex justify-between items-start gap-2">
-                                                <h4
-                                                  className="font-bold text-sm text-foreground leading-tight flex-1 pt-1"
-                                                  title={mg.title}
-                                                >
-                                                  {mg.title}
-                                                </h4>
+                                                <div className="flex items-start gap-1 flex-1 pt-1">
+                                                  <DragHandle />
+                                                  <h4
+                                                    className="font-bold text-sm text-foreground leading-tight flex-1"
+                                                    title={mg.title}
+                                                  >
+                                                    {mg.title}
+                                                  </h4>
+                                                </div>
                                                 <div className="flex items-center gap-1 shrink-0">
                                                   <div className="bg-primary/10 px-2 py-1 rounded-lg text-xs font-black text-primary">
                                                     +{mg.points ?? 0}
                                                   </div>
-                                                  <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-7 w-7"
-                                                    title="Naik"
-                                                    disabled={gi2 === 0}
-                                                    onClick={() =>
-                                                      reorderGoals(catId, mg.id, -1)
-                                                    }
-                                                  >
-                                                    <ArrowUp className="w-3.5 h-3.5" />
-                                                  </Button>
-                                                  <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-7 w-7"
-                                                    title="Turun"
-                                                    disabled={gi2 >= catNode.goals.length - 1}
-                                                    onClick={() =>
-                                                      reorderGoals(catId, mg.id, 1)
-                                                    }
-                                                  >
-                                                    <ArrowDown className="w-3.5 h-3.5" />
-                                                  </Button>
                                                   <SimpleMenu
                                                     options={[
                                                       {
@@ -609,7 +644,9 @@ export function AdminGoalsTab({
                                               )}
                                             </CardContent>
                                           </Card>
-                                        ))}
+                                            );
+                                          }}
+                                        </SortableList>
                                       </div>
                                     )}
                                   </CardContent>
@@ -617,15 +654,17 @@ export function AdminGoalsTab({
                               )}
                             </AnimatePresence>
                           </Card>
-                        );
-                      })}
+                          );
+                        }}
+                      </SortableList>
                     </CardContent>
                   </motion.div>
                 )}
               </AnimatePresence>
             </Card>
-          );
-        })}
+            );
+          }}
+        </SortableList>
       </div>
 
       {goalModalOpen && (
