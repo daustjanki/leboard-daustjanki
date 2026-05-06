@@ -493,6 +493,63 @@ async function runRouter(url: string, init: RequestInit, conn: any): Promise<Res
       }
     }
 
+    // ===== GROUPS =====
+    if (path === "/api/groups" && method === "GET") {
+      const rows = await connSelect(conn, "groups").catch(() => []);
+      return ok((rows || []).map(mapGroupRow));
+    }
+    if (path === "/api/groups" && method === "POST") {
+      const input = mapGroupInput(body || {});
+      const rows = await connInsertReturning(conn, "groups", [input]);
+      return ok(mapGroupRow(rows[0] || input));
+    }
+    const groupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
+    if (groupMatch) {
+      const id = groupMatch[1];
+      if (method === "PUT") {
+        const input = mapGroupInput(body || {});
+        const rows = await connUpdate(conn, "groups", `id=eq.${id}`, input);
+        return ok(mapGroupRow(rows[0] || { id, ...input }));
+      }
+      if (method === "DELETE") {
+        // Detach categories from this group instead of cascading delete.
+        try {
+          await connUpdate(conn, "categories", `group_id=eq.${id}`, { group_id: null });
+        } catch (e) { console.warn("detach categories failed", e); }
+        await connDeleteById(conn, "groups", id);
+        return ok();
+      }
+    }
+
+    // ===== REORDER =====
+    if (path === "/api/groups/reorder" && method === "POST") {
+      const items: { id: string; order: number }[] = body?.items || [];
+      await runWithConcurrency(items, async (it) => {
+        await connUpdate(conn, "groups", `id=eq.${it.id}`, { order: it.order });
+      });
+      return ok();
+    }
+    if (path === "/api/categories/reorder" && method === "POST") {
+      const items: { id: string; order: number }[] = body?.items || [];
+      const groupId = body?.groupId || null;
+      await runWithConcurrency(items, async (it) => {
+        const patch: any = { order: it.order };
+        if (groupId) patch.group_id = groupId;
+        await connUpdate(conn, "categories", `id=eq.${it.id}`, patch);
+      });
+      return ok();
+    }
+    if (path === "/api/masterGoals/reorder" && method === "POST") {
+      const items: { id: string; order: number }[] = body?.items || [];
+      const categoryId = body?.categoryId || null;
+      await runWithConcurrency(items, async (it) => {
+        const patch: any = { order: it.order };
+        if (categoryId) patch.category_id = categoryId;
+        await connUpdate(conn, "master_goals", `id=eq.${it.id}`, patch);
+      });
+      return ok();
+    }
+
     // ===== TRACK VISIT =====
     if (path === "/api/track-visit" && method === "POST") {
       const today = new Date().toISOString().split("T")[0];
