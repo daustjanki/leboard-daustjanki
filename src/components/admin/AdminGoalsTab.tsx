@@ -29,6 +29,7 @@ import {
   FALLBACK_CATEGORY_ID,
   type HierarchyGroupNode,
 } from "@/lib/hierarchy";
+import { SortableList, DragHandle } from "./editor/sortable";
 
 // ---------------------------------------------------------------------------
 // AdminGoalsTab — 3-tier accordion: Group → Category → Goal.
