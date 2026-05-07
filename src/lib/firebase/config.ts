@@ -33,9 +33,8 @@ if (missing.length) {
   );
 }
 
-// Optional: explicit named DB id from env. NEVER pass literal "(default)".
-const RAW_DB_ID = process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_DB_ID || "";
-const DB_ID = RAW_DB_ID && RAW_DB_ID !== "(default)" ? RAW_DB_ID : "";
+// Optional: explicit named DB id from env. Defaults to "(default)".
+const DB_ID = process.env.NEXT_PUBLIC_FIRESTORE_DATABASE_ID || "(default)";
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
@@ -43,29 +42,25 @@ const auth = getAuth(app);
 /**
  * Firestore with IndexedDB persistence (multi-tab) when in browser.
  * SSR falls back to default in-memory Firestore so imports don't crash.
- * Phase 1: never pass "(default)" — when DB_ID is empty omit the arg entirely.
  */
 function createDb() {
   if (typeof window === "undefined") {
-    return DB_ID ? getFirestore(app, DB_ID) : getFirestore(app);
+    return getFirestore(app, DB_ID);
   }
   try {
     return initializeFirestore(
       app,
       {
-        // Phase 1: Force long polling. Auto-detect fails behind some proxies
-        // (Lovable preview / corporate networks) and causes the SDK to hang
-        // for 10s before timing out. Long polling is universally supported.
         experimentalForceLongPolling: true,
         useFetchStreams: false,
         localCache: persistentLocalCache({
           tabManager: persistentMultipleTabManager(),
         }),
       } as any,
-      DB_ID || undefined as any,
+      DB_ID,
     );
   } catch {
-    return DB_ID ? getFirestore(app, DB_ID) : getFirestore(app);
+    return getFirestore(app, DB_ID);
   }
 }
 
