@@ -366,7 +366,7 @@ export async function fsSelect(
   connId: string,
   config: FirebaseConfig,
   table: string,
-  max = 1000,
+  max = 100, // Phase 2 Quota Shield: default cap to 100 docs per read.
 ): Promise<any[]> {
   const db = connectFirestore(connId, config);
   const q = query(collection(db, table), fsLimit(max));
@@ -383,6 +383,32 @@ export async function fsSelect(
   }
   const snaps = await getDocs(q);
   return snaps.docs.map(snapshotToRow);
+}
+
+/**
+ * Phase 2: Cursor-based pagination. Pass the last doc's id from the previous
+ * page as `afterId` to fetch the next page without re-reading prior pages.
+ * Requires an `orderBy` field that exists on every doc (defaults to `id`).
+ */
+export async function fsSelectPage(
+  connId: string,
+  config: FirebaseConfig,
+  table: string,
+  opts: { pageSize?: number; afterId?: string; orderField?: string } = {},
+): Promise<{ rows: any[]; nextCursor: string | null }> {
+  const db = connectFirestore(connId, config);
+  const pageSize = opts.pageSize ?? 100;
+  const orderField = opts.orderField ?? "__name__";
+  const parts: any[] = [fsOrderBy(orderField), fsLimit(pageSize)];
+  if (opts.afterId) {
+    const cursorSnap = await getDoc(doc(db, table, opts.afterId));
+    if (cursorSnap.exists()) parts.splice(1, 0, fsStartAfter(cursorSnap));
+  }
+  const q = query(collection(db, table), ...parts);
+  const snaps = await getDocs(q);
+  const rows = snaps.docs.map(snapshotToRow);
+  const nextCursor = rows.length === pageSize ? rows[rows.length - 1].id : null;
+  return { rows, nextCursor };
 }
 
 /**
