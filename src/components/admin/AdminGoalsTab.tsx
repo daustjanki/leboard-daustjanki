@@ -29,7 +29,26 @@ import {
   FALLBACK_CATEGORY_ID,
   type HierarchyGroupNode,
 } from "@/lib/hierarchy";
-import { SortableList, DragHandle } from "./editor/sortable";
+import { SortableList, DragHandle, SortableRow } from "./editor/sortable";
+import {
+  DndContext,
+  closestCenter,
+  closestCorners,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  type DragEndEvent,
+  type DragOverEvent,
+  DragOverlay,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
 
 // ---------------------------------------------------------------------------
 // AdminGoalsTab — 3-tier accordion: Group → Category → Goal.
@@ -298,374 +317,217 @@ export function AdminGoalsTab({
         </div>
       </div>
 
-      <div className="space-y-4">
-        {tree.length === 0 && (
-          <Card className="rounded-xl p-8 text-center border-dashed">
-            <p className="text-muted-foreground text-sm">
-              Belum ada grup. Mulai dengan membuat grup pertama Anda.
-            </p>
-          </Card>
-        )}
-        <SortableList
-          items={tree.map((n) => ({ id: n.group.id, node: n }))}
-          onReorder={(next) =>
-            persistGroupOrder(
-              next.map((x: any) => ({ id: x.id })).filter((x) => !tree.find((t) => t.group.id === x.id)?.group.isSystem),
-            )
+      <UnifiedHierarchyDnd
+        tree={tree}
+        groups={groups}
+        categories={categories}
+        persistGroupOrder={persistGroupOrder}
+        persistCategoryOrder={persistCategoryOrder}
+        moveCategoryToGroup={async (catId, destGroupId, destIndex) => {
+          // Optimistic-ish: send full ordered list of dest group with new cat inserted at index, plus updated categoryGroup PUT.
+          const cat = categories.find((c) => c.id === catId);
+          if (!cat) return;
+          const srcGroupId = cat.groupId || FALLBACK_GROUP_ID;
+          // Update category's groupId
+          try {
+            await apiFetch(`/api/categories/${catId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...cat, groupId: destGroupId === FALLBACK_GROUP_ID ? null : destGroupId }),
+            });
+          } catch (e) {
+            console.warn("move category failed", e);
           }
-        >
-          {(item: any, gi: number) => {
-            const node = item.node as HierarchyGroupNode;
-          const expanded = expandedGroups[node.group.id] !== false;
+          // Reorder destination
+          const destSiblings = sortByOrder(
+            categories.filter((c) => (c.groupId || FALLBACK_GROUP_ID) === destGroupId && c.id !== catId),
+          );
+          const destNext = [...destSiblings];
+          destNext.splice(Math.min(destIndex, destNext.length), 0, { ...cat, groupId: destGroupId });
+          await persistCategoryOrder(destGroupId, destNext.map((c) => ({ id: c.id })));
+          if (srcGroupId !== destGroupId) {
+            const srcNext = sortByOrder(
+              categories.filter((c) => (c.groupId || FALLBACK_GROUP_ID) === srcGroupId && c.id !== catId),
+            );
+            await persistCategoryOrder(srcGroupId, srcNext.map((c) => ({ id: c.id })));
+          }
+        }}
+        renderGroupHeader={(node, gi) => {
           const isSystem = node.group.isSystem;
           return (
-            <Card
-              key={node.group.id}
-              className="rounded-xl shadow-soft border-border overflow-hidden"
-            >
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                {!isSystem && <DragHandle />}
+                <Layers className="h-5 w-5 text-primary shrink-0" />
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <span className="font-black text-foreground truncate">{node.group.name}</span>
+                  <span className="text-muted-foreground text-xs font-bold">
+                    {node.categories.length} kategori ·{" "}
+                    {node.categories.reduce((n, c) => n + c.goals.length, 0)} tugas
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                {!isSystem && (
+                  <>
+                    <Button variant="ghost" size="icon" title="Pindah ke atas" disabled={gi === 0} onClick={() => reorderGroups(node.group.id, -1)}>
+                      <ArrowUp className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" title="Pindah ke bawah" disabled={gi >= tree.length - 1} onClick={() => reorderGroups(node.group.id, 1)}>
+                      <ArrowDown className="w-4 h-4" />
+                    </Button>
+                    <SimpleMenu
+                      options={[
+                        { label: "Edit Grup", onClick: () => { setEditGroupData(node.group); setGroupModalOpen(true); }, icon: <Edit2 className="w-4 h-4 text-muted-foreground" /> },
+                        { label: "Hapus Grup", onClick: () => setDeleteGroupConfirm(node.group), icon: <Trash2 className="w-4 h-4 text-destructive/70" />, variant: "destructive" as const },
+                      ]}
+                    />
+                  </>
+                )}
+                {(expandedGroups[node.group.id] !== false) ? (
+                  <ChevronUp className="w-5 h-5 text-muted-foreground ml-1" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-muted-foreground ml-1" />
+                )}
+              </div>
+            </div>
+          );
+        }}
+        isGroupExpanded={(id) => expandedGroups[id] !== false}
+        toggleGroup={toggleGroup}
+        renderGroupBody={(node) => {
+          const isSystem = node.group.isSystem;
+          return (
+            <CardContent className="p-4 pt-3 border-t border-border/40 bg-background space-y-3">
+              {!isSystem && (
+                <form
+                  onSubmit={(e) => { e.preventDefault(); addCategoryToGroup(node.group.id); }}
+                  className="flex gap-2"
+                >
+                  <Input
+                    type="text"
+                    placeholder="Nama Kategori Baru"
+                    value={catDraftByGroup[node.group.id] || ""}
+                    onChange={(e) => setCatDraftByGroup((p) => ({ ...p, [node.group.id]: e.target.value }))}
+                    className="h-10 rounded-xl border-border bg-card font-bold"
+                  />
+                  <Button type="submit" className="h-10 rounded-xl">
+                    <Plus className="h-4 w-4 mr-1" /> Kategori
+                  </Button>
+                </form>
+              )}
+              {node.categories.length === 0 && (
+                <p className="text-xs text-muted-foreground italic text-center py-4">
+                  Belum ada kategori di grup ini. Seret kategori ke sini untuk memindahkan.
+                </p>
+              )}
+            </CardContent>
+          );
+        }}
+        renderCategory={(node, catNode, ci) => {
+          const catId = catNode.category.id;
+          const catExpanded = expandedCats[catId] !== false;
+          const isFallbackCat = catId === FALLBACK_CATEGORY_ID;
+          return (
+            <Card key={catId} className="rounded-xl border-border overflow-hidden">
               <CardHeader
-                className="p-4 cursor-pointer hover:bg-secondary/20 transition-colors flex flex-row items-center justify-between space-y-0 bg-secondary/10"
-                onClick={() => toggleGroup(node.group.id)}
+                className="p-3 cursor-pointer hover:bg-secondary/20 transition-colors flex flex-row items-center justify-between space-y-0"
+                onClick={() => toggleCat(catId)}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  {!isSystem && <DragHandle />}
-                  <Layers className="h-5 w-5 text-primary shrink-0" />
-                  <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="font-black text-foreground truncate">
-                      {node.group.name}
-                    </span>
-                    <span className="text-muted-foreground text-xs font-bold">
-                      {node.categories.length} kategori ·{" "}
-                      {node.categories.reduce((n, c) => n + c.goals.length, 0)} tugas
-                    </span>
-                  </div>
+                  {!isFallbackCat && <DragHandle />}
+                  <FolderTree className="h-4 w-4 text-muted-foreground shrink-0" />
+                  {editCatData?.id === catId ? (
+                    <div className="flex flex-1 gap-2 items-center" onClick={(e) => e.stopPropagation()}>
+                      <Input type="text" value={editCatName} onChange={(e) => setEditCatName(e.target.value)} autoFocus className="bg-background rounded-xl font-bold h-9 w-full sm:w-64" />
+                      <Button onClick={updateCategory} className="rounded-xl h-9">Simpan</Button>
+                      <Button variant="ghost" onClick={() => setEditCatData(null)} className="rounded-xl h-9">Batal</Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold text-foreground truncate">{catNode.category.name}</span>
+                      <span className="text-[11px] text-muted-foreground font-bold">{catNode.goals.length} tugas</span>
+                    </div>
+                  )}
                 </div>
-                <div
-                  className="flex items-center gap-1"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {!isSystem && (
+                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                  {!isFallbackCat && editCatData?.id !== catId && (
                     <>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Pindah ke atas"
-                        disabled={gi === 0}
-                        onClick={() => reorderGroups(node.group.id, -1)}
-                      >
+                      <Button variant="ghost" size="icon" title="Pindah ke atas" disabled={ci === 0} onClick={() => reorderCategories(node.group.id, catId, -1)}>
                         <ArrowUp className="w-4 h-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Pindah ke bawah"
-                        disabled={gi >= tree.length - 1}
-                        onClick={() => reorderGroups(node.group.id, 1)}
-                      >
+                      <Button variant="ghost" size="icon" title="Pindah ke bawah" disabled={ci >= node.categories.length - 1} onClick={() => reorderCategories(node.group.id, catId, 1)}>
                         <ArrowDown className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => { setEditGoalData(null); setGoalDefaultCategoryId(catId); setGoalModalOpen(true); }}>
+                        <Plus className="w-4 h-4 mr-1" />Tugas
                       </Button>
                       <SimpleMenu
                         options={[
-                          {
-                            label: "Edit Grup",
-                            onClick: () => {
-                              setEditGroupData(node.group);
-                              setGroupModalOpen(true);
-                            },
-                            icon: <Edit2 className="w-4 h-4 text-muted-foreground" />,
-                          },
-                          {
-                            label: "Hapus Grup",
-                            onClick: () => setDeleteGroupConfirm(node.group),
-                            icon: <Trash2 className="w-4 h-4 text-destructive/70" />,
-                            variant: "destructive" as const,
-                          },
+                          { label: "Edit", onClick: () => { setEditCatData(catNode.category); setEditCatName(catNode.category.name); }, icon: <Edit2 className="w-4 h-4 text-muted-foreground" /> },
+                          { label: "Delete", onClick: () => setDeleteCatConfirm(catNode.category), icon: <Trash2 className="w-4 h-4 text-destructive/70" />, variant: "destructive" as const },
                         ]}
                       />
                     </>
                   )}
-                  {expanded ? (
-                    <ChevronUp className="w-5 h-5 text-muted-foreground ml-1" />
+                  {catExpanded ? (
+                    <ChevronUp className="w-4 h-4 text-muted-foreground ml-1" />
                   ) : (
-                    <ChevronDown className="w-5 h-5 text-muted-foreground ml-1" />
+                    <ChevronDown className="w-4 h-4 text-muted-foreground ml-1" />
                   )}
                 </div>
               </CardHeader>
-
               <AnimatePresence initial={false}>
-                {expanded && (
-                  <motion.div
-                    layout
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    style={{ overflow: "hidden" }}
-                  >
-                    <CardContent className="p-4 pt-3 border-t border-border/40 bg-background space-y-3">
-                      {/* Add Category to this group */}
-                      {!isSystem && (
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            addCategoryToGroup(node.group.id);
-                          }}
-                          className="flex gap-2"
-                        >
-                          <Input
-                            type="text"
-                            placeholder="Nama Kategori Baru"
-                            value={catDraftByGroup[node.group.id] || ""}
-                            onChange={(e) =>
-                              setCatDraftByGroup((p) => ({
-                                ...p,
-                                [node.group.id]: e.target.value,
-                              }))
-                            }
-                            className="h-10 rounded-xl border-border bg-card font-bold"
-                          />
-                          <Button type="submit" className="h-10 rounded-xl">
-                            <Plus className="h-4 w-4 mr-1" /> Kategori
-                          </Button>
-                        </form>
-                      )}
-
-                      {node.categories.length === 0 && (
-                        <p className="text-xs text-muted-foreground italic text-center py-4">
-                          Belum ada kategori di grup ini.
-                        </p>
-                      )}
-
-                      <SortableList
-                        items={node.categories.map((c) => ({ id: c.category.id, catNode: c }))}
-                        onReorder={(next) =>
-                          persistCategoryOrder(
-                            node.group.id,
-                            next
-                              .filter((x: any) => x.id !== FALLBACK_CATEGORY_ID)
-                              .map((x: any) => ({ id: x.id })),
-                          )
-                        }
-                      >
-                        {(item: any, ci: number) => {
-                          const catNode = item.catNode;
-                          const catId = catNode.category.id;
-                          const catExpanded = expandedCats[catId] !== false;
-                          const isFallbackCat = catId === FALLBACK_CATEGORY_ID;
-                          return (
-                          <Card
-                            key={catId}
-                            className="rounded-xl border-border overflow-hidden"
+                {catExpanded && (
+                  <motion.div layout initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} style={{ overflow: "hidden" }}>
+                    <CardContent className="p-3 pt-0 border-t border-border/40 bg-card">
+                      {catNode.goals.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic text-center py-6">Tidak ada tugas di kategori ini.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                          <SortableList
+                            items={catNode.goals.map((g: MasterGoal) => ({ id: g.id, mg: g }))}
+                            strategy="grid"
+                            onReorder={(next) => persistGoalOrder(catId, next.map((x: any) => ({ id: x.id })))}
                           >
-                            <CardHeader
-                              className="p-3 cursor-pointer hover:bg-secondary/20 transition-colors flex flex-row items-center justify-between space-y-0"
-                              onClick={() => toggleCat(catId)}
-                            >
-                              <div className="flex items-center gap-3 flex-1 min-w-0">
-                                {!isFallbackCat && <DragHandle />}
-                                <FolderTree className="h-4 w-4 text-muted-foreground shrink-0" />
-                                {editCatData?.id === catId ? (
-                                  <div
-                                    className="flex flex-1 gap-2 items-center"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <Input
-                                      type="text"
-                                      value={editCatName}
-                                      onChange={(e) => setEditCatName(e.target.value)}
-                                      autoFocus
-                                      className="bg-background rounded-xl font-bold h-9 w-full sm:w-64"
-                                    />
-                                    <Button onClick={updateCategory} className="rounded-xl h-9">
-                                      Simpan
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      onClick={() => setEditCatData(null)}
-                                      className="rounded-xl h-9"
-                                    >
-                                      Batal
-                                    </Button>
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-col min-w-0">
-                                    <span className="font-bold text-foreground truncate">
-                                      {catNode.category.name}
-                                    </span>
-                                    <span className="text-[11px] text-muted-foreground font-bold">
-                                      {catNode.goals.length} tugas
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                              <div
-                                className="flex items-center gap-1"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {!isFallbackCat && editCatData?.id !== catId && (
-                                  <>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      title="Pindah ke atas"
-                                      disabled={ci === 0}
-                                      onClick={() =>
-                                        reorderCategories(node.group.id, catId, -1)
-                                      }
-                                    >
-                                      <ArrowUp className="w-4 h-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      title="Pindah ke bawah"
-                                      disabled={ci >= node.categories.length - 1}
-                                      onClick={() =>
-                                        reorderCategories(node.group.id, catId, 1)
-                                      }
-                                    >
-                                      <ArrowDown className="w-4 h-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        setEditGoalData(null);
-                                        setGoalDefaultCategoryId(catId);
-                                        setGoalModalOpen(true);
-                                      }}
-                                    >
-                                      <Plus className="w-4 h-4 mr-1" />
-                                      Tugas
-                                    </Button>
-                                    <SimpleMenu
-                                      options={[
-                                        {
-                                          label: "Edit",
-                                          onClick: () => {
-                                            setEditCatData(catNode.category);
-                                            setEditCatName(catNode.category.name);
-                                          },
-                                          icon: <Edit2 className="w-4 h-4 text-muted-foreground" />,
-                                        },
-                                        {
-                                          label: "Delete",
-                                          onClick: () =>
-                                            setDeleteCatConfirm(catNode.category),
-                                          icon: <Trash2 className="w-4 h-4 text-destructive/70" />,
-                                          variant: "destructive" as const,
-                                        },
-                                      ]}
-                                    />
-                                  </>
-                                )}
-                                {catExpanded ? (
-                                  <ChevronUp className="w-4 h-4 text-muted-foreground ml-1" />
-                                ) : (
-                                  <ChevronDown className="w-4 h-4 text-muted-foreground ml-1" />
-                                )}
-                              </div>
-                            </CardHeader>
-                            <AnimatePresence initial={false}>
-                              {catExpanded && (
-                                <motion.div
-                                  layout
-                                  initial={{ height: 0, opacity: 0 }}
-                                  animate={{ height: "auto", opacity: 1 }}
-                                  exit={{ height: 0, opacity: 0 }}
-                                  style={{ overflow: "hidden" }}
-                                >
-                                  <CardContent className="p-3 pt-0 border-t border-border/40 bg-card">
-                                    {catNode.goals.length === 0 ? (
-                                      <p className="text-xs text-muted-foreground italic text-center py-6">
-                                        Tidak ada tugas di kategori ini.
-                                      </p>
-                                    ) : (
-                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                                        <SortableList
-                                          items={catNode.goals.map((g: MasterGoal) => ({ id: g.id, mg: g }))}
-                                          strategy="grid"
-                                          onReorder={(next) =>
-                                            persistGoalOrder(catId, next.map((x: any) => ({ id: x.id })))
-                                          }
-                                        >
-                                          {(item: any, gi2: number) => {
-                                            const mg = item.mg as MasterGoal;
-                                            return (
-                                          <Card
-                                            key={mg.id}
-                                            className="rounded-xl border border-border shadow-none hover:shadow-soft transition-shadow group relative"
-                                          >
-                                            <CardContent className="p-3 space-y-2">
-                                              <div className="flex justify-between items-start gap-2">
-                                                <div className="flex items-start gap-1 flex-1 pt-1">
-                                                  <DragHandle />
-                                                  <h4
-                                                    className="font-bold text-sm text-foreground leading-tight flex-1"
-                                                    title={mg.title}
-                                                  >
-                                                    {mg.title}
-                                                  </h4>
-                                                </div>
-                                                <div className="flex items-center gap-1 shrink-0">
-                                                  <div className="bg-primary/10 px-2 py-1 rounded-lg text-xs font-black text-primary">
-                                                    +{mg.points ?? 0}
-                                                  </div>
-                                                  <SimpleMenu
-                                                    options={[
-                                                      {
-                                                        label: "Edit",
-                                                        onClick: () => {
-                                                          setEditGoalData(mg);
-                                                          setGoalDefaultCategoryId(
-                                                            mg.categoryId || catId,
-                                                          );
-                                                          setGoalModalOpen(true);
-                                                        },
-                                                        icon: <Edit2 className="w-4 h-4 text-muted-foreground" />,
-                                                      },
-                                                      {
-                                                        label: "Delete",
-                                                        onClick: () =>
-                                                          setDeleteGoalConfirm(mg),
-                                                        icon: <Trash2 className="w-4 h-4 text-destructive/70" />,
-                                                        variant: "destructive" as const,
-                                                      },
-                                                    ]}
-                                                  />
-                                                </div>
-                                              </div>
-                                              {mg.description && (
-                                                <p
-                                                  className="text-xs text-muted-foreground italic leading-relaxed line-clamp-2"
-                                                  title={mg.description}
-                                                >
-                                                  {mg.description}
-                                                </p>
-                                              )}
-                                            </CardContent>
-                                          </Card>
-                                            );
-                                          }}
-                                        </SortableList>
+                            {(item: any) => {
+                              const mg = item.mg as MasterGoal;
+                              return (
+                                <Card key={mg.id} className="rounded-xl border border-border shadow-none hover:shadow-soft transition-shadow group relative">
+                                  <CardContent className="p-3 space-y-2">
+                                    <div className="flex justify-between items-start gap-2">
+                                      <div className="flex items-start gap-1 flex-1 pt-1">
+                                        <DragHandle />
+                                        <h4 className="font-bold text-sm text-foreground leading-tight flex-1" title={mg.title}>{mg.title}</h4>
                                       </div>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <div className="bg-primary/10 px-2 py-1 rounded-lg text-xs font-black text-primary">+{mg.points ?? 0}</div>
+                                        <SimpleMenu
+                                          options={[
+                                            { label: "Edit", onClick: () => { setEditGoalData(mg); setGoalDefaultCategoryId(mg.categoryId || catId); setGoalModalOpen(true); }, icon: <Edit2 className="w-4 h-4 text-muted-foreground" /> },
+                                            { label: "Delete", onClick: () => setDeleteGoalConfirm(mg), icon: <Trash2 className="w-4 h-4 text-destructive/70" />, variant: "destructive" as const },
+                                          ]}
+                                        />
+                                      </div>
+                                    </div>
+                                    {mg.description && (
+                                      <p className="text-xs text-muted-foreground italic leading-relaxed line-clamp-2" title={mg.description}>{mg.description}</p>
                                     )}
                                   </CardContent>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </Card>
-                          );
-                        }}
-                      </SortableList>
+                                </Card>
+                              );
+                            }}
+                          </SortableList>
+                        </div>
+                      )}
                     </CardContent>
                   </motion.div>
                 )}
               </AnimatePresence>
             </Card>
-            );
-          }}
-        </SortableList>
-      </div>
+          );
+        }}
+      />
 
       {goalModalOpen && (
         <GoalAdminModal
@@ -710,6 +572,237 @@ export function AdminGoalsTab({
         onConfirm={executeDeleteGroup}
         onCancel={() => setDeleteGroupConfirm(null)}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// UnifiedHierarchyDnd — single DndContext that owns Groups (sortable) and
+// Categories (sortable AND cross-group movable). Goals render their own
+// SortableList inside each category, fully isolated.
+// ---------------------------------------------------------------------------
+type CatMoveFn = (catId: string, destGroupId: string, destIndex: number) => Promise<void> | void;
+
+function UnifiedHierarchyDnd({
+  tree,
+  groups,
+  categories,
+  persistGroupOrder,
+  persistCategoryOrder,
+  moveCategoryToGroup,
+  renderGroupHeader,
+  renderGroupBody,
+  renderCategory,
+  isGroupExpanded,
+  toggleGroup,
+}: {
+  tree: HierarchyGroupNode[];
+  groups: Group[];
+  categories: Category[];
+  persistGroupOrder: (next: { id: string }[]) => Promise<void> | void;
+  persistCategoryOrder: (groupId: string, next: { id: string }[]) => Promise<void> | void;
+  moveCategoryToGroup: CatMoveFn;
+  renderGroupHeader: (node: HierarchyGroupNode, gi: number) => React.ReactNode;
+  renderGroupBody: (node: HierarchyGroupNode) => React.ReactNode;
+  renderCategory: (node: HierarchyGroupNode, catNode: HierarchyGroupNode["categories"][number], ci: number) => React.ReactNode;
+  isGroupExpanded: (id: string) => boolean;
+  toggleGroup: (id: string) => void;
+}) {
+  const [localTree, setLocalTree] = React.useState(tree);
+  React.useEffect(() => setLocalTree(tree), [tree]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const catIdToGroupId = React.useMemo(() => {
+    const m = new Map<string, string>();
+    localTree.forEach((g) => g.categories.forEach((c) => m.set(c.category.id, g.group.id)));
+    return m;
+  }, [localTree]);
+
+  const gid = (id: string) => `g:${id}`;
+  const cid = (id: string) => `c:${id}`;
+  const isGroupId = (id: string) => id.startsWith("g:");
+  const isCatId = (id: string) => id.startsWith("c:");
+  const stripPrefix = (id: string) => id.slice(2);
+
+  const handleDragEnd = async (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over) return;
+    const aId = String(active.id);
+    const oId = String(over.id);
+    if (aId === oId) return;
+
+    if (isGroupId(aId) && isGroupId(oId)) {
+      const ids = localTree.map((g) => g.group.id);
+      const oldIdx = ids.indexOf(stripPrefix(aId));
+      const newIdx = ids.indexOf(stripPrefix(oId));
+      if (oldIdx < 0 || newIdx < 0) return;
+      const next = arrayMove(localTree, oldIdx, newIdx);
+      setLocalTree(next);
+      await persistGroupOrder(
+        next.filter((n) => !n.group.isSystem).map((n) => ({ id: n.group.id })),
+      );
+      return;
+    }
+
+    if (isCatId(aId)) {
+      const catRaw = stripPrefix(aId);
+      const srcGroup = catIdToGroupId.get(catRaw);
+      if (!srcGroup) return;
+
+      let destGroup: string | undefined;
+      let destIndex = 0;
+      if (isCatId(oId)) {
+        destGroup = catIdToGroupId.get(stripPrefix(oId));
+        if (!destGroup) return;
+        const destSiblings = localTree.find((g) => g.group.id === destGroup)!.categories;
+        destIndex = destSiblings.findIndex((c) => c.category.id === stripPrefix(oId));
+        if (destIndex < 0) destIndex = destSiblings.length;
+      } else if (oId.startsWith("drop:")) {
+        destGroup = oId.slice(5);
+        destIndex = localTree.find((g) => g.group.id === destGroup)?.categories.length ?? 0;
+      } else if (isGroupId(oId)) {
+        destGroup = stripPrefix(oId);
+        destIndex = localTree.find((g) => g.group.id === destGroup)?.categories.length ?? 0;
+      }
+      if (!destGroup) return;
+
+      setLocalTree((prev) => {
+        const copy = prev.map((g) => ({ ...g, categories: [...g.categories] }));
+        const sg = copy.find((g) => g.group.id === srcGroup)!;
+        const dg = copy.find((g) => g.group.id === destGroup)!;
+        const idx = sg.categories.findIndex((c) => c.category.id === catRaw);
+        if (idx < 0) return prev;
+        const [moved] = sg.categories.splice(idx, 1);
+        const insertAt = Math.min(destIndex, dg.categories.length);
+        dg.categories.splice(insertAt, 0, moved);
+        return copy;
+      });
+
+      if (srcGroup === destGroup) {
+        const g = localTree.find((g) => g.group.id === srcGroup)!;
+        const ids = g.categories.map((c) => c.category.id);
+        const oldIdx = ids.indexOf(catRaw);
+        const next = arrayMove(ids, oldIdx, destIndex);
+        await persistCategoryOrder(srcGroup, next.map((id) => ({ id })));
+      } else {
+        await moveCategoryToGroup(catRaw, destGroup, destIndex);
+      }
+    }
+  };
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+      <div className="space-y-4">
+        {localTree.length === 0 && (
+          <Card className="rounded-xl p-8 text-center border-dashed">
+            <p className="text-muted-foreground text-sm">
+              Belum ada grup. Mulai dengan membuat grup pertama Anda.
+            </p>
+          </Card>
+        )}
+        <SortableContext
+          items={localTree.filter((n) => !n.group.isSystem).map((n) => gid(n.group.id))}
+          strategy={verticalListSortingStrategy}
+        >
+          {localTree.map((node, gi) => {
+            const expanded = isGroupExpanded(node.group.id);
+            const isSystem = node.group.isSystem;
+            const inner = (
+              <Card className="rounded-xl shadow-soft border-border overflow-visible">
+                <CardHeader
+                  className="p-4 cursor-pointer hover:bg-secondary/20 transition-colors flex flex-row items-center justify-between space-y-0 bg-secondary/10"
+                  onClick={() => toggleGroup(node.group.id)}
+                >
+                  {renderGroupHeader(node, gi)}
+                </CardHeader>
+                <AnimatePresence initial={false}>
+                  {expanded && (
+                    <motion.div
+                      layout
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      style={{ overflow: "visible" }}
+                    >
+                      {renderGroupBody(node)}
+                      <div className="px-4 pb-4">
+                        <GroupCategoryDropZone
+                          groupId={node.group.id}
+                          isEmpty={node.categories.length === 0}
+                        >
+                          <SortableContext
+                            items={node.categories.map((c) => cid(c.category.id))}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            <div className="space-y-2">
+                              {node.categories.map((catNode, ci) => {
+                                const isFallbackCat = catNode.category.id === FALLBACK_CATEGORY_ID;
+                                if (isFallbackCat) {
+                                  return (
+                                    <React.Fragment key={catNode.category.id}>
+                                      {renderCategory(node, catNode, ci)}
+                                    </React.Fragment>
+                                  );
+                                }
+                                return (
+                                  <SortableRow key={catNode.category.id} id={cid(catNode.category.id)}>
+                                    {renderCategory(node, catNode, ci)}
+                                  </SortableRow>
+                                );
+                              })}
+                            </div>
+                          </SortableContext>
+                        </GroupCategoryDropZone>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </Card>
+            );
+
+            if (isSystem) return <React.Fragment key={node.group.id}>{inner}</React.Fragment>;
+            return (
+              <SortableRow key={node.group.id} id={gid(node.group.id)}>
+                {inner}
+              </SortableRow>
+            );
+          })}
+        </SortableContext>
+      </div>
+    </DndContext>
+  );
+}
+
+function GroupCategoryDropZone({
+  groupId,
+  isEmpty,
+  children,
+}: {
+  groupId: string;
+  isEmpty: boolean;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `drop:${groupId}` });
+  return (
+    <div
+      ref={setNodeRef}
+      className={
+        "rounded-xl transition-colors " +
+        (isOver ? "bg-primary/5 ring-2 ring-primary/40 ring-offset-2 ring-offset-background " : "") +
+        (isEmpty ? "min-h-[60px] border-2 border-dashed border-border/60 p-2" : "")
+      }
+    >
+      {isEmpty ? (
+        <p className="text-xs text-muted-foreground italic text-center py-3">
+          Seret kategori ke sini.
+        </p>
+      ) : (
+        children
+      )}
     </div>
   );
 }

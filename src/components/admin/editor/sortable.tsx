@@ -67,6 +67,10 @@ export function SortableList<T extends { id: string }>({
 }
 
 function SortableItem({ id, children }: { id: string; children: React.ReactNode }) {
+  return <SortableRow id={id}>{children}</SortableRow>;
+}
+
+export function SortableRow({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -84,7 +88,7 @@ function SortableItem({ id, children }: { id: string; children: React.ReactNode 
   );
 }
 
-const SortableHandleContext = React.createContext<DragHandleProps>({
+export const SortableHandleContext = React.createContext<DragHandleProps>({
   attributes: {},
   listeners: {},
 });
