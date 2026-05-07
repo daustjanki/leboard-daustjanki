@@ -35,6 +35,8 @@ import {
   writeBatch,
   query,
   limit as fsLimit,
+  startAfter as fsStartAfter,
+  orderBy as fsOrderBy,
 } from "firebase/firestore";
 
 // Local structural stand-ins. The firebase package re-exports these names as
