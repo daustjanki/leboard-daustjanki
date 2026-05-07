@@ -171,11 +171,14 @@ function AppContent({ children }: { children: React.ReactNode }) {
     };
   }, [refreshData]);
 
-  if (!isMounted || isAuthLoading || isLoading) {
-    // Render a deterministic loader on both server and first client paint so
-    // hydration markup matches exactly.
+  // Phase 2: SSR returns null to guarantee no hydration mismatch. The first
+  // client paint also returns null, then mounts the real tree on the next
+  // commit. Loader is only shown after mount while data is loading.
+  if (!isMounted) return null;
+
+  if (isAuthLoading || isLoading) {
     return (
-      <div suppressHydrationWarning className="fixed inset-0 bg-background flex flex-col items-center justify-center z-50">
+      <div className="fixed inset-0 bg-background flex flex-col items-center justify-center z-50">
         <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
         <p className="text-primary font-bold tracking-widest uppercase text-xs">
           Memuat Aplikasi...
