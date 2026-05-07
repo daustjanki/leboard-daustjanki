@@ -5,11 +5,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { get, set, del, createStore, type UseStore } from "idb-keyval";
 
-// Phase 3: Aggressive cache reuse so repeated mounts and offline navigation
-// don't trigger fresh Firestore reads.
-const STALE_TIME = 5 * 60 * 1000;   // 5 minutes
-const GC_TIME = 10 * 60 * 1000;     // 10 minutes (cache retention in memory)
-const PERSIST_MAX_AGE = 24 * 60 * 60 * 1000; // 24h on disk
+// Phase 1 (Quota Shield): Aggressive cache reuse so repeated visits cost
+// ZERO Firestore reads. Cache survives full browser restarts via IndexedDB.
+const STALE_TIME = 10 * 60 * 1000;            // 10 minutes — no refetch within this window
+const GC_TIME = 24 * 60 * 60 * 1000;          // 24 hours — keep in memory all day
+const PERSIST_MAX_AGE = 24 * 60 * 60 * 1000;  // 24h on disk (IndexedDB)
 
 function makeQueryClient() {
   return new QueryClient({
