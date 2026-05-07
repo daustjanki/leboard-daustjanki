@@ -53,11 +53,15 @@ function createDb() {
     return initializeFirestore(
       app,
       {
-        experimentalAutoDetectLongPolling: true,
+        // Phase 1: Force long polling. Auto-detect fails behind some proxies
+        // (Lovable preview / corporate networks) and causes the SDK to hang
+        // for 10s before timing out. Long polling is universally supported.
+        experimentalForceLongPolling: true,
+        useFetchStreams: false,
         localCache: persistentLocalCache({
           tabManager: persistentMultipleTabManager(),
         }),
-      },
+      } as any,
       DB_ID || undefined as any,
     );
   } catch {
