@@ -40,6 +40,12 @@ function AppContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const queryClient = useQueryClient();
 
+  // Phase 2: Defer Firebase-dependent rendering until after client mount to
+  // eliminate SSR hydration mismatch (server has no Firebase access; client
+  // resolves auth/data asynchronously).
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => { setIsMounted(true); }, []);
+
   const { data: authData, isLoading: isAuthLoading } = useAuthQuery();
   const { data: appData, isLoading: isAppDataLoading } = useAppDataQuery();
 
@@ -165,9 +171,11 @@ function AppContent({ children }: { children: React.ReactNode }) {
     };
   }, [refreshData]);
 
-  if (isAuthLoading || isLoading) {
+  if (!isMounted || isAuthLoading || isLoading) {
+    // Render a deterministic loader on both server and first client paint so
+    // hydration markup matches exactly.
     return (
-      <div className="fixed inset-0 bg-background flex flex-col items-center justify-center z-50">
+      <div suppressHydrationWarning className="fixed inset-0 bg-background flex flex-col items-center justify-center z-50">
         <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
         <p className="text-primary font-bold tracking-widest uppercase text-xs">
           Memuat Aplikasi...
