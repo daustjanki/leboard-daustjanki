@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Search, Trophy, Medal, Crown, Flame, Loader2 } from "lucide-react";
 import { StudentSearchAdvanced } from "../StudentSearchAdvanced";
-import { trackEvent } from "../../lib/analytics";
+import { trackEvent } from "../../lib/services/analytics";
 import { ImageFallback, dicebearAvatar } from "../ImageFallback";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -18,7 +18,7 @@ import {
   TIME_RANGE,
   TIME_RANGE_OPTIONS,
   type TimeRange,
-} from "../../lib/timeRanges";
+} from "../../lib/utils/timeRanges";
 import {
   StudentSearchFilter,
   applyStudentSearchFilter,

@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback } from 'react';
 import Cropper from 'react-easy-crop';
-import { uploadImageWithCompression } from '@/lib/uploadImage';
+import { uploadImageWithCompression } from '@/lib/services/uploadImage';
 import { toast } from 'sonner';
 import { Button } from './button';
 import { ImageIcon, X } from 'lucide-react';

@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { PRESETS } from "@/components/admin/AdminAppearanceTab";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { removeLocalToken } from "@/lib/auth";
-import { trackEvent } from "@/lib/analytics";
+import { trackEvent } from "@/lib/services/analytics";
 
 interface FloatingSettingsFabProps {
   themeMode: "light" | "dark";

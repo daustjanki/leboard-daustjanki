@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { BlogPostsAPI } from '@/hooks/queries';
 import type { Post } from '@/lib/types';
-import { slugifyCategory } from '@/lib/categorySlug';
+import { slugifyCategory } from '@/lib/utils/categorySlug';
 
 interface CategoryBucket {
   name: string;
