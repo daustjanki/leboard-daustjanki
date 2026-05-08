@@ -92,14 +92,15 @@ Delete in order once Phase C is green and typecheck clean:
   - `app/blog/page.tsx` — RSC wrapper, `revalidate = 600`.
   - `app/berita/kategori/page.tsx` — RSC wrapper, `revalidate = 600`.
   - `app/berita/kategori/[slug]/page.tsx` — RSC wrapper with awaited `params`, `revalidate = 600`, **`generateStaticParams` over top 30 derived category slugs** via `getTopCategorySlugs()`.
-  - `app/leaderboard/page.tsx` and `app/student/[id]/page.tsx` — dropped `dynamic(ssr:false)`; now SSR-friendly client pages (still need full RSC split).
-  - New server util: `src/lib/firebase/serverFetch.ts` — lightweight slug fetchers used by `generateStaticParams`. `dynamicParams = true` so cold slugs still render on demand.
+  - `app/leaderboard/page.tsx` — **full RSC**, server-fetches students+goals via `getLeaderboardBundle()`, hands them to `LeaderboardClient` (thin client island that owns router + point calc). `revalidate = 300`.
+  - `app/student/[id]/page.tsx` — **full RSC**, server-fetches the leaderboard bundle once per request, renders `StudentProfileClient`. `generateStaticParams` over top 30 students by `total_points` via `getTopStudentIds()`, `dynamicParams = true`, `revalidate = 300`.
+  - New server util: `src/lib/firebase/serverFetch.ts` — slug fetchers + `getLeaderboardBundle()` + `getTopStudentIds()`. New client islands under `src/components/pages/clients/`.
 - **Phase E (cleanup)**: re-removed the regenerated `src/integrations/supabase/*` shim (no consumers remain).
 
 ## Next up — finish Phase D
 
-1. Promote `app/leaderboard/page.tsx` to a true RSC: move `useAppDataQuery` + `calculateTotalPoints` into a small client island, fetch students/goals server-side via `firebase/firestore` Web SDK, `revalidate = 300`.
-2. Promote `app/student/[id]/page.tsx` to RSC + `generateStaticParams` for top-N students, `revalidate = 300`.
+1. Optional: split `LandingPage` into RSC shell + interactive client islands (currently a single client island under an RSC wrapper — already ISR-cached, lower priority).
+2. Begin Phase F verification: cold-load Firestore reads on `/`, `/blog`, `/leaderboard`, `/student/:id`; Lighthouse SSR HTML check.
 
 ## Next up — Phase D readiness
 
