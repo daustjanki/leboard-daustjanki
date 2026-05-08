@@ -63,3 +63,53 @@ export async function getTopCategorySlugs(n = 30): Promise<SlugRow[]> {
     return [];
   }
 }
+
+import { studentsCol, goalsCol, categoriesCol, groupsCol } from "./collections";
+import {
+  mapStudentRow,
+  mapGoalRow,
+  mapCategoryRow,
+  mapGroupRow,
+} from "./mappers";
+import type { Student, MasterGoal, Category, Group } from "@/types";
+
+/**
+ * Bundle for leaderboard / student RSC routes. Single round-trip on the
+ * server, then handed to a thin client island as props.
+ */
+export interface LeaderboardBundle {
+  students: Student[];
+  masterGoals: MasterGoal[];
+  categories: Category[];
+  groups: Group[];
+}
+
+export async function getLeaderboardBundle(): Promise<LeaderboardBundle> {
+  try {
+    const [sSnap, gSnap, cSnap, grSnap] = await Promise.all([
+      getDocs(studentsCol),
+      getDocs(goalsCol),
+      getDocs(categoriesCol),
+      getDocs(groupsCol),
+    ]);
+    return {
+      students: sSnap.docs.map((d) => mapStudentRow({ id: d.id, ...d.data() })),
+      masterGoals: gSnap.docs.map((d) => mapGoalRow({ id: d.id, ...d.data() })),
+      categories: cSnap.docs.map((d) => mapCategoryRow({ id: d.id, ...d.data() })),
+      groups: grSnap.docs.map((d) => mapGroupRow({ id: d.id, ...d.data() })),
+    };
+  } catch {
+    return { students: [], masterGoals: [], categories: [], groups: [] };
+  }
+}
+
+/** Top-N student ids by total_points for `generateStaticParams`. */
+export async function getTopStudentIds(n = 30): Promise<{ id: string }[]> {
+  try {
+    const q = query(studentsCol, orderBy("total_points", "desc"), limit(n));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id }));
+  } catch {
+    return [];
+  }
+}
