@@ -86,21 +86,21 @@ Delete in order once Phase C is green and typecheck clean:
 - **Phase C (consumers)**: complete for the build path. All admin tabs, public pages, and the layout shell now import directly from `@/hooks/queries/*` and `firebase/firestore`. Missing third-party deps (firebase, react-query, radix-ui set, dnd-kit, tiptap stack, recharts, sonner, date-fns, etc.) installed; duplicate root `components/`, `hooks/`, `lib/` shims deleted.
 - **Phase E (partial)**: legacy `src/lib/api.ts` and `src/integrations/supabase/*` removed; remaining `lib/auth.ts` is the single token shim. `firebaseApi.ts`, `dbConnections.ts`, `firestoreDriver.ts`, `lib/db/`, `firebaseClient.ts` were already absent.
 - **Runtime fix (root layout)**: `app/layout.tsx` now mounts `ReactQueryClientProvider` + `ClientLayout` so client hooks (`useAuthQuery`, `useAppDataQuery`, factory `useList`) resolve a `QueryClient`. This unblocks every `"use client"` route that consumes Phase B hooks.
-- **Phase D (in progress)**:
+- **Phase D (complete)**:
   - `app/blog/[slug]/page.tsx` — RSC, `revalidate = 600`, **`generateStaticParams` over top 30 recent slugs** via `getTopBlogSlugs()`.
   - `app/page.tsx` (landing) — RSC wrapper, `revalidate = 600`. Inner `LandingPage` stays a client island.
   - `app/blog/page.tsx` — RSC wrapper, `revalidate = 600`.
   - `app/berita/kategori/page.tsx` — RSC wrapper, `revalidate = 600`.
   - `app/berita/kategori/[slug]/page.tsx` — RSC wrapper with awaited `params`, `revalidate = 600`, **`generateStaticParams` over top 30 derived category slugs** via `getTopCategorySlugs()`.
-  - `app/leaderboard/page.tsx` — **full RSC**, server-fetches students+goals via `getLeaderboardBundle()`, hands them to `LeaderboardClient` (thin client island that owns router + point calc). `revalidate = 300`.
-  - `app/student/[id]/page.tsx` — **full RSC**, server-fetches the leaderboard bundle once per request, renders `StudentProfileClient`. `generateStaticParams` over top 30 students by `total_points` via `getTopStudentIds()`, `dynamicParams = true`, `revalidate = 300`.
-  - New server util: `src/lib/firebase/serverFetch.ts` — slug fetchers + `getLeaderboardBundle()` + `getTopStudentIds()`. New client islands under `src/components/pages/clients/`.
-- **Phase E (cleanup)**: re-removed the regenerated `src/integrations/supabase/*` shim (no consumers remain).
+  - `app/leaderboard/page.tsx` — **full RSC**, server-fetches via `getLeaderboardBundle()` → `LeaderboardClient`. `revalidate = 300`.
+  - `app/student/[id]/page.tsx` — **full RSC** + `StudentProfileClient`, `generateStaticParams` over top 30 students by `total_points`, `dynamicParams = true`, `revalidate = 300`.
+  - Server utils: `src/lib/firebase/serverFetch.ts` (slug fetchers, `getLeaderboardBundle`, `getTopStudentIds`). Client islands: `src/components/pages/clients/`.
+- **Phase E (complete)**: re-removed the regenerated `src/integrations/supabase/*` shim. Stray `src/lib/{categorySlug,csv,hierarchy,timeRanges,uploadImage,gemini,analytics}.ts` shims deleted; 18 consumer files repointed to `@/lib/utils/*` and `@/lib/services/*`. `bunx tsc --noEmit` clean. Only `src/lib/auth.ts` remains by design (real token utility).
 
-## Next up — finish Phase D
+## Next up
 
-1. Optional: split `LandingPage` into RSC shell + interactive client islands (currently a single client island under an RSC wrapper — already ISR-cached, lower priority).
-2. Begin Phase F verification: cold-load Firestore reads on `/`, `/blog`, `/leaderboard`, `/student/:id`; Lighthouse SSR HTML check.
+1. Optional: split `LandingPage` into RSC shell + interactive client islands (lower priority — already ISR-cached).
+2. Phase F verification: cold-load Firestore reads on `/`, `/blog`, `/leaderboard`, `/student/:id`; Lighthouse SSR HTML check.
 
 ## Next up — Phase D readiness
 
