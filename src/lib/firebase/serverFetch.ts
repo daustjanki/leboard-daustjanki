@@ -93,10 +93,10 @@ export async function getLeaderboardBundle(): Promise<LeaderboardBundle> {
       getDocs(groupsCol),
     ]);
     return {
-      students: sSnap.docs.map((d) => mapStudentRow({ id: d.id, ...d.data() })),
-      masterGoals: gSnap.docs.map((d) => mapGoalRow({ id: d.id, ...d.data() })),
-      categories: cSnap.docs.map((d) => mapCategoryRow({ id: d.id, ...d.data() })),
-      groups: grSnap.docs.map((d) => mapGroupRow({ id: d.id, ...d.data() })),
+      students: sSnap.docs.map((d: any) => mapStudentRow({ id: d.id, ...d.data() })),
+      masterGoals: gSnap.docs.map((d: any) => mapGoalRow({ id: d.id, ...d.data() })),
+      categories: cSnap.docs.map((d: any) => mapCategoryRow({ id: d.id, ...d.data() })),
+      groups: grSnap.docs.map((d: any) => mapGroupRow({ id: d.id, ...d.data() })),
     };
   } catch {
     return { students: [], masterGoals: [], categories: [], groups: [] };
@@ -108,7 +108,7 @@ export async function getTopStudentIds(n = 30): Promise<{ id: string }[]> {
   try {
     const q = query(studentsCol, orderBy("total_points", "desc"), limit(n));
     const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id }));
+    return snap.docs.map((d: any) => ({ id: d.id }));
   } catch {
     return [];
   }
