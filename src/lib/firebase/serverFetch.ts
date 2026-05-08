@@ -4,7 +4,7 @@
 
 import { getDocs, limit, orderBy, query, where } from "firebase/firestore";
 import { blogPostsCol } from "./collections";
-import { slugifyCategory } from "@/lib/categorySlug";
+import { slugifyCategory } from "@/lib/utils/categorySlug";
 
 export interface SlugRow {
   slug: string;

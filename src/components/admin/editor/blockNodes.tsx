@@ -4,7 +4,7 @@ import { ReactNodeViewRenderer, NodeViewWrapper, NodeViewContent, NodeViewProps 
 import { ChevronDown, Plus, Trash2, GripVertical, Image as ImageIcon, Quote, Loader2, Upload } from 'lucide-react';
 import { ImageUploader } from '../../ui/ImageUploader';
 import { toast } from 'sonner';
-import { batchUploadImages } from '@/lib/uploadImage';
+import { batchUploadImages } from '@/lib/services/uploadImage';
 
 /* =====================================================================
  * Shared helpers

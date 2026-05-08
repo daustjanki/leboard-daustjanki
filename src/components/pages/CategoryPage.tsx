@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, ChevronRight, Clock, Star, Flame, TrendingUp, LayoutGrid } from 'lucide-react';
 import { BlogPostsAPI } from '@/hooks/queries';
 import type { Post } from '@/lib/types';
-import { matchesCategorySlug, slugifyCategory } from '@/lib/categorySlug';
+import { matchesCategorySlug, slugifyCategory } from '@/lib/utils/categorySlug';
 import { CategoryChips } from '@/components/ui/CategoryChips';
 import { SmartSearchBar, type SortKey } from '@/components/ui/SmartSearchBar';
 import { SimplePagination } from '@/components/ui/SimplePagination';

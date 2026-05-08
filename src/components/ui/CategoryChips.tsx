@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { slugifyCategory } from '@/lib/categorySlug';
+import { slugifyCategory } from '@/lib/utils/categorySlug';
 import { LayoutGrid } from 'lucide-react';
 
 interface ChipCat {

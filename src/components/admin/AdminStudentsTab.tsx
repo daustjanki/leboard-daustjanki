@@ -97,7 +97,7 @@ import type { StudentAchievement } from "@/lib/types";
 import {
   buildHierarchy,
   sortByOrder,
-} from "@/lib/hierarchy";
+} from "@/lib/utils/hierarchy";
 
 // ---------------------------------------------------------------------------
 // Inline collapsible audit card — replaces the legacy CompletionAuditPanel.

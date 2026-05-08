@@ -7,7 +7,7 @@ import { LoginPage } from "@/components/pages/LoginPage";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { trackEvent } from "@/lib/analytics";
+import { trackEvent } from "@/lib/services/analytics";
 import type { AssignedGoal } from "@/lib/types";
 
 export default function AdminPage() {

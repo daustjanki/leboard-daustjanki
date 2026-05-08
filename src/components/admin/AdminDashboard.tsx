@@ -24,7 +24,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { removeLocalToken } from "../../lib/auth";
 import { auth } from "../../lib/firebase/firebase";
 import { signOut } from "firebase/auth";
-import { trackEvent } from "../../lib/analytics";
+import { trackEvent } from "../../lib/services/analytics";
 import { AdminStudentsTab } from "./AdminStudentsTab";
 import { AdminGoalsTab } from "./AdminGoalsTab";
 import { AdminAppearanceTab } from "./AdminAppearanceTab";

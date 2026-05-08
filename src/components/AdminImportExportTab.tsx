@@ -9,7 +9,7 @@ import {
   Database,
   Settings,
 } from "lucide-react";
-import { toCSV, downloadCSV, parseCSV } from "../lib/csv";
+import { toCSV, downloadCSV, parseCSV } from "../lib/utils/csv";
 import { z } from "zod";
 import { toast } from "sonner";
 import { writeBatch, doc, collection, getDocs } from "firebase/firestore";

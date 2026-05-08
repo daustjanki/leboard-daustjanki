@@ -27,7 +27,7 @@ import {
   FALLBACK_GROUP_ID,
   FALLBACK_CATEGORY_ID,
   type HierarchyGroupNode,
-} from "@/lib/hierarchy";
+} from "@/lib/utils/hierarchy";
 import { SortableList, DragHandle, SortableRow } from "./editor/sortable";
 import {
   DndContext,
