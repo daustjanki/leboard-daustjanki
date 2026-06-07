@@ -9,7 +9,7 @@ import {
   fromDateInputValue,
   endOfDay,
   startOfDay,
-} from '../lib/utils/timeRanges';
+} from '../lib/timeRanges';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 

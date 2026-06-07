@@ -16,7 +16,7 @@ import {
   createDefaultTimeRangeValue,
   TimeRangeFilter,
 } from "../TimeRangeFilter";
-import { DateRange, isWithinRange, POINTS_CAPTION } from "../../lib/utils/timeRanges";
+import { DateRange, isWithinRange, POINTS_CAPTION } from "../../lib/timeRanges";
 import { RankMovement } from "../ui/RankMovement";
 import {
   ResponsiveContainer,
@@ -45,7 +45,7 @@ import type {
 import { ActionMenu } from "../ui/ActionMenu";
 import { ConfirmModal } from "../ui/ConfirmModal";
 import { Button } from "@/components/ui/button";
-import { buildHierarchy } from "@/lib/utils/hierarchy";
+import { buildHierarchy } from "@/lib/hierarchy";
 
 export // --- STUDENT PROFILE PAGE (with collapsible goals) ---
 function StudentProfilePage({

@@ -6,7 +6,7 @@ import {
   NodeViewProps,
 } from '@tiptap/react';
 import { FileText, Link as LinkIcon, Video, Trash2, Loader2, Download, Upload, GripVertical } from 'lucide-react';
-import { batchUploadImages, uploadRawFile } from '@/lib/services/uploadImage';
+import { batchUploadImages, uploadRawFile } from '@/lib/uploadImage';
 import { toast } from 'sonner';
 
 /** Notion-style hover drag handle — sits in the gutter to the left of the block. */

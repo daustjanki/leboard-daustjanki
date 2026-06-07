@@ -4,7 +4,7 @@ import { useAppDataQuery } from "@/hooks/useAppQueries";
 import { LoginPage as LoginComponent } from "@/components/pages/LoginPage";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { trackEvent } from "@/lib/services/analytics";
+import { trackEvent } from "@/lib/analytics";
 
 export default function LoginPage() {
   const router = useRouter();

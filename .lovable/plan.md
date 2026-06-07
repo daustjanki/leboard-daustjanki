@@ -1,139 +1,202 @@
-# Full Native Firebase Migration & CRUD Optimization
-
-## Goal
-Eliminate the legacy `apiFetch` / `firebaseApi` / `dbConnections` / `db/adapter` proxy stack. Every consumer talks directly to Firestore via `firebase/firestore`, wrapped in TanStack Query, with public read pages converted to Next.js RSC + ISR.
-
-## Phase A — Firestore data access foundation
-
-Create two new files:
-
-**`src/lib/firebase/collections.ts`** — typed collection refs with `withConverter<T>()`:
-- `studentsCol`, `goalsCol`, `categoriesCol`, `groupsCol`, `blogPostsCol`, `adminUsersCol`, `pageViewsCol`, `appEventsCol`, `activityLogsCol`
-- `settingsDoc` (doc ref to `settings/app`)
-
-**`src/lib/firebase/queries.ts`** — composable helpers:
-- `listAll<T>(ref)` — full collection
-- `listPaged<T>(ref, {pageSize, cursor, orderField})` — cursor pagination, default `limit(100)`
-- `getById<T>(ref, id)` — `getDoc` with cache-first then network
-- `countOf(ref)` — uses `getCountFromServer`
-- `upsert(ref, id, data)` — `setDoc(..., {merge: true})`
-- `patch(ref, id, data)` — `updateDoc`
-- `remove(ref, id)` — `deleteDoc`
-- `bulkWrite(ref, rows, mode)` — chunked `writeBatch` (≤450 ops/batch)
-
-## Phase B — Domain hooks
-
-`src/hooks/queries/` with one file per domain. Each exports `useXList`, `useX(id)`, `useCreateX`, `useUpdateX`, `useDeleteX`, `useBulkX`:
-
-- `useStudents.ts`
-- `useGoals.ts`
-- `useCategories.ts`
-- `useGroups.ts`
-- `useBlogPosts.ts`
-- `useAdminUsers.ts`
-- `useAppSettings.ts`
-- `useAdminStats.ts`
-- `useAppEvents.ts`
-
-Conventions:
-- Query keys: `['students']`, `['students', id]`
-- `staleTime` 10 min, `gcTime` 24 h (already in `ReactQueryClientProvider`)
-- Mutations: optimistic via `setQueryData` + rollback in `onError`, then `invalidateQueries` in `onSettled`
-- `onSnapshot` only on admin live tiles; everywhere else `getDocs`
-
-## Phase C — Migrate consumers (20 files)
-
-Order by blast-radius (smallest first):
-
-1. **Public reads (will become RSC in Phase D)**: `LandingPage`, `BlogListPage`, `BlogPostPage`, `CategoryPage`, `CategoryIndexPage`, `LeaderboardPage`, `StudentProfilePage`
-2. **Layout & shared**: `ClientLayout`, `Tracker`, `FloatingSettingsFab`, `useAuthRole`, `utils/hierarchy.ts`
-3. **Auth**: `LoginPage` → `signInWithEmailAndPassword` direct
-4. **Admin tabs**: `AdminDashboard`, `AdminStudentsTab`, `AdminGoalsTab`, `AdminBlogTab`, `AdminAppearanceTab`, `AdminUserManagement`, `AdminDatabaseTab`, `AdminImportExportTab`
-
-For each file: swap `apiFetch(...)` for the matching hook/helper, drop dead `useEffect` plumbing, leave UI untouched.
-
-## Phase D — Next.js App Router optimization
-
-Convert read-only public routes to **Server Components** with ISR:
-
-- `app/blog/page.tsx` — `revalidate = 600`
-- `app/blog/[slug]/page.tsx` — `revalidate = 600` + `generateStaticParams` for popular slugs
-- `app/berita/kategori/page.tsx` + `[slug]/page.tsx` — `revalidate = 600` + `generateStaticParams`
-- `app/leaderboard/page.tsx` — `revalidate = 300`
-- `app/student/[id]/page.tsx` — `revalidate = 300`
-- `app/page.tsx` (landing) — `revalidate = 600`
-
-Keep `app/admin/**` and interactive widgets as Client Components on Phase B hooks.
-
-`src/app/api/data/route.ts` becomes a health endpoint only.
-
-## Phase E — Demolition
-
-Delete in order once Phase C is green and typecheck clean:
-
-1. `src/lib/api.ts`
-2. `src/lib/firebaseApi.ts` (801 lines)
-3. `src/lib/dbConnections.ts`
-4. `src/lib/firestoreDriver.ts` (re-target `AdminDatabaseTab` through Phase A first)
-5. `src/lib/db/` folder (`adapter.ts`, `adapters/*`, `index.ts`, `mappers.ts`, `types.ts`, `example.server.tsx`)
-6. `src/lib/firebaseClient.ts` (shim)
-7. `src/integrations/supabase/*` if no imports remain
-8. Stray shims in `src/lib/` whose home is `utils/` or `services/`
-
-## Progress log
-
-- **Phase A + B**: complete. Typed collections (`src/lib/firebase/collections.ts`), composable query helpers (`src/lib/firebase/queries.ts`), and the `createDomainHooks` factory plus per-domain hooks in `src/hooks/queries/` are live.
-- **Phase C (consumers)**: complete for the build path. All admin tabs, public pages, and the layout shell now import directly from `@/hooks/queries/*` and `firebase/firestore`. Missing third-party deps (firebase, react-query, radix-ui set, dnd-kit, tiptap stack, recharts, sonner, date-fns, etc.) installed; duplicate root `components/`, `hooks/`, `lib/` shims deleted.
-- **Phase E (partial)**: legacy `src/lib/api.ts` and `src/integrations/supabase/*` removed; remaining `lib/auth.ts` is the single token shim. `firebaseApi.ts`, `dbConnections.ts`, `firestoreDriver.ts`, `lib/db/`, `firebaseClient.ts` were already absent.
-- **Runtime fix (root layout)**: `app/layout.tsx` now mounts `ReactQueryClientProvider` + `ClientLayout` so client hooks (`useAuthQuery`, `useAppDataQuery`, factory `useList`) resolve a `QueryClient`. This unblocks every `"use client"` route that consumes Phase B hooks.
-- **Phase D (complete)**:
-  - `app/blog/[slug]/page.tsx` — RSC, `revalidate = 600`, **`generateStaticParams` over top 30 recent slugs** via `getTopBlogSlugs()`.
-  - `app/page.tsx` (landing) — RSC wrapper, `revalidate = 600`. Inner `LandingPage` stays a client island.
-  - `app/blog/page.tsx` — RSC wrapper, `revalidate = 600`.
-  - `app/berita/kategori/page.tsx` — RSC wrapper, `revalidate = 600`.
-  - `app/berita/kategori/[slug]/page.tsx` — RSC wrapper with awaited `params`, `revalidate = 600`, **`generateStaticParams` over top 30 derived category slugs** via `getTopCategorySlugs()`.
-  - `app/leaderboard/page.tsx` — **full RSC**, server-fetches via `getLeaderboardBundle()` → `LeaderboardClient`. `revalidate = 300`.
-  - `app/student/[id]/page.tsx` — **full RSC** + `StudentProfileClient`, `generateStaticParams` over top 30 students by `total_points`, `dynamicParams = true`, `revalidate = 300`.
-  - Server utils: `src/lib/firebase/serverFetch.ts` (slug fetchers, `getLeaderboardBundle`, `getTopStudentIds`). Client islands: `src/components/pages/clients/`.
-- **Phase E (complete)**: re-removed the regenerated `src/integrations/supabase/*` shim. Stray `src/lib/{categorySlug,csv,hierarchy,timeRanges,uploadImage,gemini,analytics}.ts` shims deleted; 18 consumer files repointed to `@/lib/utils/*` and `@/lib/services/*`. `bunx tsc --noEmit` clean. Only `src/lib/auth.ts` remains by design (real token utility).
-
-## Next up
-
-1. Optional: split `LandingPage` into RSC shell + interactive client islands (lower priority — already ISR-cached).
-2. Phase F verification: cold-load Firestore reads on `/`, `/blog`, `/leaderboard`, `/student/:id`; Lighthouse SSR HTML check.
-
-## Next up — Phase D readiness
-
-Convert the remaining read-only public routes off `dynamic(ssr:false)`:
-
-1. `app/page.tsx` (landing) → RSC, fetch `appSettings` + featured data via Firebase Web SDK in a server util, hydrate a thin client island for interactive bits. `revalidate = 600`.
-2. `app/blog/page.tsx` → RSC list, `revalidate = 600`.
-3. `app/leaderboard/page.tsx` → RSC, server-side `calculateTotalPoints`, `revalidate = 300`.
-4. `app/student/[id]/page.tsx` → RSC + `generateStaticParams` for top N, `revalidate = 300`.
-5. `app/berita/kategori/(page|[slug])` → RSC + `generateStaticParams`, `revalidate = 600`.
-
-Server-side data access continues to use `firebase/firestore` Web SDK (rule-gated public reads) — no Admin SDK required. Each conversion: extract a `loadX()` server helper, render the existing presentational component as a Server Component, and keep only stateful widgets in client islands wrapped under the existing providers.
-
-## Phase F — Verification
-
-- `bunx tsc --noEmit` clean
-- Manual smoke: landing, blog list+post, leaderboard, student profile, admin dashboard, students/goals/blog CRUD, import/export
-- Firebase console: cold-load reads should be single-digit on cached public pages, ≤100 on admin lists
-- Lighthouse on `/` and `/blog` to confirm SSR HTML without client Firestore round-trip
-
-## Technical notes
-
-- RSC uses the same `firebase/firestore` Web SDK with env config; no Admin SDK needed because reads are rule-gated public. If privileged reads land later, add `src/lib/firebase/admin.ts` (server-only).
-- `withConverter` keeps `id` on read, strips it on write.
-- All writes funnel through `bulkWrite`/`patch` — never 500 individual writes.
-- `firestore.rules` untouched for now.
-
-## Out of scope
-
-- Firebase Admin SDK
-- Schema / collection-name changes
-- UI redesign of migrated screens
-
-## Risk & sequencing
-
-This is large (~25 files touched, ~10 new files, ~10 deletions). Phase A+B land first (additive, zero breakage). Phase C migrates in batches and runs typecheck between batches. Phases D and E only after C is fully green so we can revert any single phase cleanly.
+# Implementation Plan — Smart Import, Image Pipeline, Idempotent Goal Assignment
+> Scope: three changes against the existing Firebase / Firestore + React (Next.js) app.
+> No code is being written yet — this document is the contract to approve.
+---
+## 0. Architecture Overview
+The app already uses:
+- **Firestore collections**: `students`, `master_goals`, `categories`, `groups`, plus `posts`, `student_achievements`, etc.
+- **Admin surfaces**: `src/components/AdminImportExportTab.tsx` (CSV/JSON import-export), `src/components/admin/AdminStudentsTab.tsx` (assign goals), `src/components/ui/ImageUploader.tsx` + `src/lib/uploadImage.ts` (image pipeline — currently Base64 only).
+- **Data layer**: `src/lib/firebaseApi.ts` and `src/hooks/useAppQueries.ts` (React Query + Firestore).
+The three tasks slot in without changing the public data shape consumed by the UI:
+```text
+ ┌──────────────┐    CSV/JSON      ┌────────────────────┐   batched upserts   ┌────────────┐
+ │  Admin UI    │ ───────────────▶ │  Import Planner    │ ──────────────────▶ │ Firestore  │
+ │ (Import tab) │  diff + dry-run  │ (pure, testable)   │  writeBatch(merge)  │ collections│
+ └──────────────┘                  └────────────────────┘                     └────────────┘
+ ┌──────────────┐  File → Canvas → WebP   ┌──────────────────┐  putFile   ┌──────────────┐
+ │ ImageUploader│ ──────────────────────▶ │ uploadImage.ts   │ ─────────▶ │ Firebase     │
+ │ (cropper)    │                         │ (Storage client) │   URL      │ Storage      │
+ └──────────────┘                         └──────────────────┘            └──────────────┘
+                                                   │
+                                                   ▼
+                                         students/{id}.photo = URL
+ ┌──────────────┐  click "Assign All"   ┌──────────────────────┐  arrayUnion / setDoc(merge)
+ │ AdminStudents│ ────────────────────▶ │ assignGoalsIdempotent │ ──────────────────────────▶ Firestore
+ └──────────────┘                       └──────────────────────┘
+```
+No new collections are required. One new Storage bucket path (`students/{id}/avatar.webp`) and one optional `migrations` log doc.
+---
+## 1. Database / Schema Adjustments
+Minimal — all changes are additive and backwards compatible.
+| Collection      | Field            | Change                                                                                        |
+| --------------- | ---------------- | --------------------------------------------------------------------------------------------- |
+| `students`      | `photo`          | Semantics change: now a Firebase Storage URL (https://…) instead of `data:image/...;base64`. Legacy Base64 values continue to render. |
+| `students`      | `photoPath`      | **NEW (optional)** — Storage object path (e.g. `students/abc123/avatar-1733600000.webp`) used for cleanup on replace. |
+| `students`      | `assignedGoals`  | Invariant: array of `AssignedGoal` with **unique `goalId`**. Enforced in code (Firestore can't enforce it). |
+| `master_goals`  | `id`             | Continue to be the canonical merge key for import.                                            |
+| `categories`    | `id`             | Merge key.                                                                                    |
+| `groups`        | `id`             | Merge key.                                                                                    |
+| `migrations`    | `{name, ranAt, stats}` | **NEW (optional)** — one doc per healing run so we don't repeat the dedupe.            |
+Firestore Rules: extend `students` rule to allow `photoPath` writes from admins; add `storage.rules` for `students/{uid}/**` (admin write, public read).
+---
+## 2. Task 1 — Smart Data Import & Synchronization (Idempotent Merge)
+### 2.1 Goals
+- Round-trip safe: Export → edit in Excel → Re-import.
+- Never delete. Never overwrite fields the CSV doesn't carry.
+- Show a dry-run diff before commit.
+### 2.2 Module layout
+New file: `src/lib/import/planImport.ts` — pure, unit-testable.
+```ts
+type Mode = "students" | "master_goals" | "categories" | "groups";
+interface ImportPlan<T> {
+  toCreate: T[];                 // no id, or id not found
+  toUpdate: { id: string; before: T; after: T; changedFields: string[] }[];
+  unchanged: number;
+  invalid: { row: number; reason: string }[];
+}
+function planImport<T>(mode: Mode, incoming: any[], existing: T[]): ImportPlan<T>
+```
+- Validates each row with a **Zod schema per mode** (`studentRowSchema`, `goalRowSchema`, …).
+- Compares by `id`. Missing/blank `id` → `toCreate` (a new `crypto.randomUUID()` is assigned at commit time).
+- For updates: computes `changedFields` via shallow diff after coercing types. Only changed fields are written.
+- Relationship integrity:
+  - `master_goals.categoryId` must exist in `categories` (current or incoming). If not, row is moved to `invalid`.
+  - `categories.groupId` must exist in `groups`.
+  - `students.assignedGoals[].goalId` must exist in `master_goals`. Missing references → row marked invalid (never silently dropped).
+### 2.3 Commit (writer)
+New file: `src/lib/import/commitImport.ts`
+- Uses `writeBatch` in chunks of 450 ops.
+- `setDoc(ref, partial, { merge: true })` for both create and update (true upsert). Never `deleteDoc`.
+- Wraps each chunk in try/catch; on failure, surfaces the failed chunk index so the user can retry without re-running the whole import.
+- Writes a summary toast: `"Updated 5, Created 2, Skipped 13 unchanged"`.
+### 2.4 UI changes — `AdminImportExportTab.tsx`
+- Add an **"Analyze"** step: parse file → call `planImport` → show a modal:
+```text
+┌─ Import preview ──────────────────────────────┐
+│ Students                                       │
+│   + 2 new       (Ahmad, Bilal)                 │
+│   ~ 5 updated   (3 photo, 2 bio, …)            │
+│   = 174 unchanged                              │
+│   ! 1 invalid   (row 88: groupId not found)    │
+│                                                │
+│ [ Cancel ]                       [ Commit ]    │
+└────────────────────────────────────────────────┘
+```
+- "Commit" is disabled while `invalid.length > 0` unless the admin toggles "ignore invalid rows".
+- Existing CSV export already includes `id` for every row, so a round-trip is naturally idempotent.
+---
+## 3. Task 2 — Optimized Photo & Image Management
+### 3.1 Pipeline
+Replace the Base64 path in `src/lib/uploadImage.ts` and `src/components/ui/ImageUploader.tsx`:
+```text
+File ─▶ Cropper (existing) ─▶ Canvas resize (max 800px long edge)
+      ─▶ canvas.toBlob('image/webp', 0.82)
+      ─▶ uploadBytesResumable(ref, blob, { contentType: 'image/webp', cacheControl: 'public,max-age=31536000,immutable' })
+      ─▶ getDownloadURL  ──▶ { url, path }
+```
+Quality target: ~50–120 KB for avatars (100–400px), ~150–300 KB for cover images (≤1200px).
+### 3.2 New / changed files
+- `src/lib/storage.ts` (new) — thin wrapper around Firebase Storage: `uploadWebp(file, folder, ownerId)`, `deleteByPath(path)`.
+- `src/lib/uploadImage.ts` — rewrite `uploadImageWithCompression` to:
+  1. Convert to WebP blob with the canvas pipeline above.
+  2. Upload to Storage at `${folder}/${ownerId ?? 'misc'}/${uuid}.webp`.
+  3. Return `{ url, path }` (caller persists both).
+- `ImageUploader.tsx` — `onUploadSuccess` becomes `(payload: { url: string; path: string }) => void`. Old `(url)` callers get a small shim during the transition.
+- Consumers (`AdminStudentsTab`, `AdminBlogTab`, `AdminUserManagement`, `TiptapEditor`) — persist `photoPath` alongside `photo`.
+### 3.3 Cleanup on replace
+When saving a student/admin/post:
+```ts
+if (next.photoPath && next.photoPath !== prev.photoPath && prev.photoPath?.startsWith('students/')) {
+  await deleteByPath(prev.photoPath); // best-effort, swallow 404
+}
+```
+Legacy Base64 `photo` values have no `photoPath` → cleanup is a no-op, safe to leave in place.
+### 3.4 Backwards compatibility
+`ImageWithFallback` already handles arbitrary URLs and `data:` strings. No reader changes needed.
+### 3.5 Storage rules (high level)
+```text
+match /students/{studentId}/{file=**} {
+  allow read: if true;
+  allow write: if request.auth != null && hasAdminClaim();
+}
+```
+---
+## 4. Task 3 — Fix "Assign All Goals" Duplication
+### 4.1 Root cause
+`AdminStudentsTab.tsx` currently does:
+```ts
+const newAssignedGoals = [...student.assignedGoals, ...allMasterGoals.map(g => ({ goalId: g.id, completed: false }))];
+```
+No dedupe → clicking twice = 2× entries (181 → 362; one student in prod shows 354 because some goals existed already).
+### 4.2 Fix — single source of truth helper
+New file: `src/lib/assignGoals.ts`
+```ts
+export function mergeAssignments(
+  existing: AssignedGoal[],
+  goalIdsToAdd: string[],
+): AssignedGoal[] {
+  const byId = new Map(existing.map(a => [a.goalId, a]));
+  for (const id of goalIdsToAdd) {
+    if (!byId.has(id)) byId.set(id, { goalId: id, completed: false });
+  }
+  return Array.from(byId.values());
+}
+```
+All call sites (Assign-All, Assign-by-Category, Assign-by-Group, single Assign) go through this. Writes use `updateDoc({ assignedGoals: merged })` — we can't use `arrayUnion` directly because elements are objects (Firestore equality is structural and would still duplicate `{goalId, completed:false}` if `completed` differs).
+### 4.3 Mirror collection (`student_achievements`)
+If the achievement junction is also written on assign, use a deterministic doc id `${studentId}_${goalId}` with `setDoc(..., { merge: true })` so re-assigning is a no-op.
+### 4.4 Data healing
+New file: `src/lib/migrations/dedupeAssignedGoals.ts`
+- Iterate all `students`.
+- For each, collapse `assignedGoals` by `goalId`, **preferring the completed entry** when duplicates exist (keeps points history).
+- Write back only if length changed.
+- Log `{studentId, before, after}` to a `migrations/dedupe-assigned-goals-<date>` doc.
+Exposed as a one-click button in `AdminDatabaseTab` ("Heal duplicate goal assignments"), gated behind a confirm modal and `super_admin` role.
+---
+## 5. File Touch List
+| Path                                                | Action |
+| --------------------------------------------------- | ------ |
+| `src/lib/import/planImport.ts`                      | new    |
+| `src/lib/import/commitImport.ts`                    | new    |
+| `src/lib/import/schemas.ts`                         | new    |
+| `src/components/AdminImportExportTab.tsx`           | edit — wire Analyze/Commit modal |
+| `src/lib/storage.ts`                                | new    |
+| `src/lib/uploadImage.ts`                            | rewrite |
+| `src/components/ui/ImageUploader.tsx`               | edit — return `{url, path}` |
+| `src/components/admin/AdminStudentsTab.tsx`         | edit — use `mergeAssignments`, persist `photoPath` |
+| `src/components/admin/AdminBlogTab.tsx`             | edit — persist `photoPath` |
+| `src/components/admin/AdminUserManagement.tsx`      | edit — persist `photoPath` |
+| `src/lib/assignGoals.ts`                            | new    |
+| `src/lib/migrations/dedupeAssignedGoals.ts`         | new    |
+| `src/components/admin/AdminDatabaseTab.tsx`         | edit — Heal button |
+| `src/lib/types.ts`                                  | add `photoPath?: string` to `Student`, `AdminUser`, `Post` |
+| `firestore.rules` / `storage.rules`                 | edit — admin write for `students/**` storage path |
+---
+## 6. Verification & Testing
+### Task 1 — Import
+1. Export `students` CSV. Re-import unchanged → modal must show `0 created, 0 updated, N unchanged`.
+2. Edit one cell in 3 rows → re-import → `0 created, 3 updated`. Confirm in Firestore that only those fields changed and `assignedGoals` is untouched.
+3. Add 2 new rows without `id` → `2 created`. Confirm they have fresh UUIDs.
+4. Add a row with `groupId = "nope"` → row appears under `invalid`; commit is blocked.
+5. Delete a row from the CSV → re-import → record is NOT removed from Firestore (regression guard against destructive imports).
+### Task 2 — Images
+1. Upload a 4 MB JPEG → resulting Storage object is `.webp` and < 300 KB; download URL is saved on the student doc.
+2. Replace the photo → old Storage object is deleted (`getMetadata` returns 404); new URL is on the doc.
+3. Network tab: subsequent loads of the avatar hit Storage's CDN with `cache-control: immutable`.
+4. Legacy student with `data:image/...;base64` still renders.
+### Task 3 — Assignment
+1. Pick a fresh student, click "Assign All" once → `assignedGoals.length === master_goals.length`.
+2. Click "Assign All" again → length unchanged. No completed flags reset.
+3. Run the healing migration on a seeded student with duplicate entries (181 → 362) → ends at 181, completed goals preserved.
+4. Concurrent test: open the same student in two tabs, click Assign All in both. Final length is still equal to `master_goals.length` (the second write merges atomically because we read-merge-write inside a transaction).
+### Cross-cutting
+- `bunx tsc --noEmit` clean.
+- Manual smoke pass: admin tabs (Students, Goals, Import/Export, Database) render with no console errors.
+- Lighthouse: avatar-heavy pages (Leaderboard, Landing) show transfer-size reduction vs baseline.
+---
+## 7. Open Questions (please confirm before I start coding)
+1. **Storage bucket**: is the existing Firebase Storage bucket already enabled and admin-writable, or do you want me to add the `storage.rules` in the same PR?
+2. **Healing scope**: run the dedupe automatically on first admin login after deploy, or keep it strictly as a manual button in `AdminDatabaseTab`?
+3. **Image quality**: OK with `webp @ q=0.82, max 800px long edge` as the avatar default? (Roughly 60–120 KB.)
+4. **Import invalid rows**: should "ignore invalid rows" be allowed at all, or always block until the CSV is clean?
+Once you confirm, I'll implement in this order: Task 3 (smallest, highest-impact bug) → Task 2 (image pipeline) → Task 1 (import planner + UI).

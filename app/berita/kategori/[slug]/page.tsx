@@ -1,17 +1,16 @@
-import { CategoryPage } from "@/components/pages/CategoryPage";
-import { getTopCategorySlugs } from "@/lib/firebase/serverFetch";
+"use client";
 
-// Phase D: ISR — revalidate category pages every 10 minutes.
-export const revalidate = 600;
-export const dynamicParams = true;
+import dynamic from "next/dynamic";
+import { useParams } from "next/navigation";
 
-export async function generateStaticParams() {
-  const rows = await getTopCategorySlugs(30);
-  return rows.map((r) => ({ slug: r.slug }));
-}
+const CategoryPage = dynamic(
+  () => import("@/components/pages/CategoryPage").then((m) => m.CategoryPage),
+  { ssr: false }
+);
 
-export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
+export default function Page() {
+  const params = useParams();
+  const slug = params?.slug as string;
   if (!slug) return null;
   return <CategoryPage slug={slug} />;
 }
