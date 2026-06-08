@@ -1091,21 +1091,13 @@ function StudentAdminModal({
               </p>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2 block">
-                  Photo URL (Optional)
-                </label>
-                <input
-                  type="text"
-                  className="w-full bg-secondary border-none rounded-xl p-3 text-sm focus:ring-2 focus:ring-primary/50"
-                  placeholder="Paste image URL here"
-                  value={formData.photo}
-                  onChange={(e) =>
-                    setFormData((p) => ({ ...p, photo: e.target.value, photoPath: "" }))
-                  }
-                />
-              </div>
+            <PhotoSourcePicker
+              value={formData.photo}
+              onChange={(url) =>
+                setFormData((p) => ({ ...p, photo: url, photoPath: "" }))
+              }
+            />
+
               <div>
                 <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2 block">
                   Nama Lengkap
