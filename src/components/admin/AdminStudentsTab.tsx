@@ -1091,12 +1091,14 @@ function StudentAdminModal({
               </p>
             </div>
 
-            <PhotoSourcePicker
-              value={formData.photo}
-              onChange={(url) =>
-                setFormData((p) => ({ ...p, photo: url, photoPath: "" }))
-              }
-            />
+            <div className="space-y-4">
+              <PhotoSourcePicker
+                value={formData.photo}
+                onChange={(url) =>
+                  setFormData((p) => ({ ...p, photo: url, photoPath: "" }))
+                }
+              />
+
 
               <div>
                 <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2 block">
