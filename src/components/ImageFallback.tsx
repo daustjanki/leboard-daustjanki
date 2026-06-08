@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Avatar as ShadcnAvatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ImageIcon, User as UserIcon } from "lucide-react";
+import { resolveImageUrl, gdriveFallbackUrl } from "@/lib/gdrive";
 
 export type ImageFallbackVariant = "avatar" | "logo" | "generic";
 
