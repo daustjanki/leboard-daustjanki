@@ -1313,7 +1313,15 @@ function StudentAdminModal({
 
             {/* Group tabs */}
             {tree.length > 0 && (
-              <div className="mb-3 -mx-1 px-1 overflow-x-auto scrollbar-hide">
+              <div
+                className="mb-3 -mx-1 px-1 overflow-x-auto scrollbar-hide"
+                onWheel={(e) => {
+                  if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                    e.currentTarget.scrollLeft += e.deltaY;
+                    e.preventDefault();
+                  }
+                }}
+              >
                 <div className="flex gap-2 min-w-max pb-1">
                   {tree.map((node) => {
                     const active = node.group.id === activeGroupNode?.group.id;
