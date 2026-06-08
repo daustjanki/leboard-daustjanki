@@ -1364,7 +1364,15 @@ function StudentAdminModal({
 
             {/* Category tabs (multi-select) */}
             {activeCategories.length > 0 && (
-              <div className="mb-4 -mx-1 px-1 overflow-x-auto scrollbar-hide">
+              <div
+                className="mb-4 -mx-1 px-1 overflow-x-auto scrollbar-hide"
+                onWheel={(e) => {
+                  if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                    e.currentTarget.scrollLeft += e.deltaY;
+                    e.preventDefault();
+                  }
+                }}
+              >
                 <div className="flex gap-2 min-w-max pb-1 items-center">
                   <button
                     type="button"
