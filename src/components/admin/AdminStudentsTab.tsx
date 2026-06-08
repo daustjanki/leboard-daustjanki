@@ -50,6 +50,7 @@ import {
   SortKey,
 } from "../StudentSortDropdown";
 import { dicebearAvatar } from "../ImageFallback";
+import { parseGDriveUrl, isGDriveUrl } from "@/lib/gdrive";
 import { ConfirmModal } from "../ui/ConfirmModal";
 import type {
   Category,
