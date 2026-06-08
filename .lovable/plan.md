@@ -1,192 +1,264 @@
-# Plan — Global Dynamic Extra Fields for Students
+# Implementation Plan — Smart Import, Image Pipeline, Idempotent Goal Assignment
 
-## 1. Goal
-Add a structured, application-wide set of "extra" fields to student profiles (e.g. Tanggal Lahir, Ukuran Seragam, Riwayat Medis) where:
-- Field **definitions** (id, label, isPublic) live in one global blueprint.
-- Field **values** live inside each student document under a single `extraData` map.
-- Admin form auto-renders inputs from the blueprint — labels are never user-typed.
-- Profile view filters fields by `isPublic` for public viewers, shows all (with "Internal" badge) for admins.
-
-No existing data is touched or migrated; the feature is purely additive and backwards compatible.
+> Scope: three changes against the existing Firebase / Firestore + React (Next.js) app.
+> No code is being written yet — this document is the contract to approve.
 
 ---
 
-## 2. Configuration Location (Blueprint)
+## 0. Architecture Overview
 
-**Decision: a single TypeScript constant** at `src/lib/studentFields.ts`.
+The app already uses:
 
-Why not Firestore?
-- Zero extra reads on every page load (saves quota — aligns with the existing aggressive-caching posture).
-- Type-safe: blueprint ids become a discriminated union usable across the form and the profile view.
-- Changing a label or flipping `isPublic` is a one-line code edit + redeploy — acceptable for a small, slow-changing list of fields.
+- **Firestore collections**: `students`, `master_goals`, `categories`, `groups`, plus `posts`, `student_achievements`, etc.
+- **Admin surfaces**: `src/components/AdminImportExportTab.tsx` (CSV/JSON import-export), `src/components/admin/AdminStudentsTab.tsx` (assign goals), `src/components/ui/ImageUploader.tsx` + `src/lib/uploadImage.ts` (image pipeline — currently Base64 only).
+- **Data layer**: `src/lib/firebaseApi.ts` and `src/hooks/useAppQueries.ts` (React Query + Firestore).
 
-If the team later wants non-developer editing, this same module can be swapped for a `settings/student_fields` Firestore doc behind the same exported API — without touching consumers.
-
-```ts
-// src/lib/studentFields.ts
-export interface ExtraFieldDef {
-  id: string;            // stable key, never rename
-  label: string;         // shown in form + profile
-  isPublic: boolean;     // true → visible on public profile
-  type?: "text" | "date" | "textarea"; // optional, defaults to "text"
-  placeholder?: string;
-}
-
-export const GLOBAL_EXTRA_FIELDS: ExtraFieldDef[] = [
-  { id: "field_birth_date",      label: "Tanggal Lahir",    isPublic: true,  type: "date" },
-  { id: "field_uniform_size",    label: "Ukuran Seragam",   isPublic: false },
-  { id: "field_medical_history", label: "Riwayat Medis",    isPublic: false, type: "textarea" },
-];
-
-export const PUBLIC_EXTRA_FIELDS   = GLOBAL_EXTRA_FIELDS.filter(f => f.isPublic);
-export const INTERNAL_EXTRA_FIELDS = GLOBAL_EXTRA_FIELDS.filter(f => !f.isPublic);
-```
-
----
-
-## 3. Data Model Changes
-
-### 3.1 `Student` type — `src/lib/types.ts`
-Add one optional field. Fully backwards compatible.
-
-```ts
-export interface Student {
-  // ...existing fields...
-  /** Values for GLOBAL_EXTRA_FIELDS, keyed by field id. Missing keys = no value. */
-  extraData?: Record<string, string>;
-}
-```
-
-### 3.2 Firestore
-- Collection: `students` (unchanged).
-- New optional map field: `extraData: { [fieldId]: string }`.
-- No migration: documents without `extraData` are treated as "no extras filled in".
-- Firestore Rules: existing `students` admin-write rule already covers arbitrary fields. No rule changes required.
-
----
-
-## 4. Component Updates
-
-### 4.1 Admin Form — `src/components/admin/AdminStudentsTab.tsx`
-Inside the Add/Edit Student modal, append a new section **"Informasi Tambahan"** right after the existing photo/bio block.
-
-Behavior:
-- Loop `GLOBAL_EXTRA_FIELDS.map(...)` and render the correct input per `type`:
-  - `text` / `date` → `<Input type={type ?? "text"} />`
-  - `textarea` → `<Textarea />`
-- Each input is **controlled** against `formState.extraData?.[field.id] ?? ""`.
-- On change: `setFormState(s => ({ ...s, extraData: { ...(s.extraData ?? {}), [field.id]: value } }))`.
-- Render a small `Badge variant="secondary"` saying **"Internal"** next to the label when `!field.isPublic`, so the admin understands visibility.
-- On submit: include `extraData` in the payload passed to the existing student-save mutation. Empty strings are kept as-is (cheap; no quota impact).
-
-No new save/mutation code is required — the existing `updateDoc`/`setDoc` path already does `{ merge: true }` and will accept the new map verbatim.
-
-### 4.2 Public Profile View — `src/components/pages/StudentProfilePage.tsx` (+ `StudentProfileClient.tsx`)
-Add a presentational sub-component `ExtraFieldsBlock`:
-
-```tsx
-function ExtraFieldsBlock({
-  student,
-  mode,
-}: { student: Student; mode: "public" | "admin" }) {
-  const fields = mode === "public" ? PUBLIC_EXTRA_FIELDS : GLOBAL_EXTRA_FIELDS;
-  const rows = fields
-    .map(f => ({ f, value: student.extraData?.[f.id]?.trim() }))
-    .filter(r => r.value); // hide empty values in both views
-
-  if (rows.length === 0) return null;
-
-  return (
-    <section aria-label="Informasi Tambahan">
-      <h3>Informasi Tambahan</h3>
-      <dl>
-        {rows.map(({ f, value }) => (
-          <div key={f.id}>
-            <dt>
-              {f.label}
-              {mode === "admin" && !f.isPublic && (
-                <Badge variant="secondary">Internal</Badge>
-              )}
-            </dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
-}
-```
-
-Determine `mode` from the existing `useAuthRole()` hook (`isAdmin ? "admin" : "public"`). This keeps the public/private filter on the **client-rendered** profile section and avoids server-side leakage because the ISR-cached server component will only ship `PUBLIC_EXTRA_FIELDS` values — see §5.
-
-### 4.3 Server-side leak prevention — `src/lib/firebase/serverFetch.ts`
-In the server fetch used by `app/student/[id]/page.tsx` (ISR-cached), strip non-public keys from `extraData` before returning to the RSC. Admins fetch the full record through the authed `/api/...` route the client already uses, so admin view still gets everything.
-
-```ts
-// inside getStudentForPublicProfile()
-const allowed = new Set(PUBLIC_EXTRA_FIELDS.map(f => f.id));
-if (raw.extraData) {
-  raw.extraData = Object.fromEntries(
-    Object.entries(raw.extraData).filter(([k]) => allowed.has(k))
-  );
-}
-```
-
-This guarantees internal fields never appear in HTML source, even via "view source".
-
----
-
-## 5. Step-by-Step Execution
+The three tasks slot in without changing the public data shape consumed by the UI:
 
 ```text
-Phase 1 — Blueprint & Types  (no UI yet)
-  1. Create src/lib/studentFields.ts with GLOBAL_EXTRA_FIELDS + helpers.
-  2. Add `extraData?: Record<string,string>` to Student in src/lib/types.ts.
-  3. bunx tsc --noEmit — must pass.
+ ┌──────────────┐    CSV/JSON      ┌────────────────────┐   batched upserts   ┌────────────┐
+ │  Admin UI    │ ───────────────▶ │  Import Planner    │ ──────────────────▶ │ Firestore  │
+ │ (Import tab) │  diff + dry-run  │ (pure, testable)   │  writeBatch(merge)  │ collections│
+ └──────────────┘                  └────────────────────┘                     └────────────┘
 
-Phase 2 — Admin Form
-  4. In AdminStudentsTab.tsx, add "Informasi Tambahan" section that loops the blueprint.
-  5. Wire controlled inputs into formState.extraData.
-  6. Add "Internal" badge next to non-public labels.
-  7. Manual test: add a value to each field, save, reload modal — values persist.
+ ┌──────────────┐  File → Canvas → WebP   ┌──────────────────┐  putFile   ┌──────────────┐
+ │ ImageUploader│ ──────────────────────▶ │ uploadImage.ts   │ ─────────▶ │ Firebase     │
+ │ (cropper)    │                         │ (Storage client) │   URL      │ Storage      │
+ └──────────────┘                         └──────────────────┘            └──────────────┘
+                                                   │
+                                                   ▼
+                                         students/{id}.photo = URL
 
-Phase 3 — Profile Display
-  8. Build ExtraFieldsBlock component (co-located in StudentProfileClient.tsx).
-  9. Render it inside the profile, passing mode based on useAuthRole().
- 10. Manual test: as admin → all filled fields show, internal ones badged.
-                  as anon → only public fields show.
+ ┌──────────────┐  click "Assign All"   ┌──────────────────────┐  arrayUnion / setDoc(merge)
+ │ AdminStudents│ ────────────────────▶ │ assignGoalsIdempotent │ ──────────────────────────▶ Firestore
+ └──────────────┘                       └──────────────────────┘
+```
 
-Phase 4 — Server-Side Filter
- 11. Patch serverFetch.ts to strip non-public keys for the public RSC path.
- 12. View page source on /student/[id] — confirm no internal values present.
+No new collections are required. One new Storage bucket path (`students/{id}/avatar.webp`) and one optional `migrations` log doc.
 
-Phase 5 — Verify
- 13. bunx tsc --noEmit clean.
- 14. Existing students with no extraData render normally (section hidden).
- 15. Existing import/export and assign-goals flows unaffected (no schema-required fields added).
+---
+
+## 1. Database / Schema Adjustments
+
+Minimal — all changes are additive and backwards compatible.
+
+| Collection      | Field            | Change                                                                                        |
+| --------------- | ---------------- | --------------------------------------------------------------------------------------------- |
+| `students`      | `photo`          | Semantics change: now a Firebase Storage URL (https://…) instead of `data:image/...;base64`. Legacy Base64 values continue to render. |
+| `students`      | `photoPath`      | **NEW (optional)** — Storage object path (e.g. `students/abc123/avatar-1733600000.webp`) used for cleanup on replace. |
+| `students`      | `assignedGoals`  | Invariant: array of `AssignedGoal` with **unique `goalId`**. Enforced in code (Firestore can't enforce it). |
+| `master_goals`  | `id`             | Continue to be the canonical merge key for import.                                            |
+| `categories`    | `id`             | Merge key.                                                                                    |
+| `groups`        | `id`             | Merge key.                                                                                    |
+| `migrations`    | `{name, ranAt, stats}` | **NEW (optional)** — one doc per healing run so we don't repeat the dedupe.            |
+
+Firestore Rules: extend `students` rule to allow `photoPath` writes from admins; add `storage.rules` for `students/{uid}/**` (admin write, public read).
+
+---
+
+## 2. Task 1 — Smart Data Import & Synchronization (Idempotent Merge)
+
+### 2.1 Goals
+- Round-trip safe: Export → edit in Excel → Re-import.
+- Never delete. Never overwrite fields the CSV doesn't carry.
+- Show a dry-run diff before commit.
+
+### 2.2 Module layout
+New file: `src/lib/import/planImport.ts` — pure, unit-testable.
+
+```ts
+type Mode = "students" | "master_goals" | "categories" | "groups";
+
+interface ImportPlan<T> {
+  toCreate: T[];                 // no id, or id not found
+  toUpdate: { id: string; before: T; after: T; changedFields: string[] }[];
+  unchanged: number;
+  invalid: { row: number; reason: string }[];
+}
+
+function planImport<T>(mode: Mode, incoming: any[], existing: T[]): ImportPlan<T>
+```
+
+- Validates each row with a **Zod schema per mode** (`studentRowSchema`, `goalRowSchema`, …).
+- Compares by `id`. Missing/blank `id` → `toCreate` (a new `crypto.randomUUID()` is assigned at commit time).
+- For updates: computes `changedFields` via shallow diff after coercing types. Only changed fields are written.
+- Relationship integrity:
+  - `master_goals.categoryId` must exist in `categories` (current or incoming). If not, row is moved to `invalid`.
+  - `categories.groupId` must exist in `groups`.
+  - `students.assignedGoals[].goalId` must exist in `master_goals`. Missing references → row marked invalid (never silently dropped).
+
+### 2.3 Commit (writer)
+New file: `src/lib/import/commitImport.ts`
+
+- Uses `writeBatch` in chunks of 450 ops.
+- `setDoc(ref, partial, { merge: true })` for both create and update (true upsert). Never `deleteDoc`.
+- Wraps each chunk in try/catch; on failure, surfaces the failed chunk index so the user can retry without re-running the whole import.
+- Writes a summary toast: `"Updated 5, Created 2, Skipped 13 unchanged"`.
+
+### 2.4 UI changes — `AdminImportExportTab.tsx`
+- Add an **"Analyze"** step: parse file → call `planImport` → show a modal:
+
+```text
+┌─ Import preview ──────────────────────────────┐
+│ Students                                       │
+│   + 2 new       (Ahmad, Bilal)                 │
+│   ~ 5 updated   (3 photo, 2 bio, …)            │
+│   = 174 unchanged                              │
+│   ! 1 invalid   (row 88: groupId not found)    │
+│                                                │
+│ [ Cancel ]                       [ Commit ]    │
+└────────────────────────────────────────────────┘
+```
+
+- "Commit" is disabled while `invalid.length > 0` unless the admin toggles "ignore invalid rows".
+- Existing CSV export already includes `id` for every row, so a round-trip is naturally idempotent.
+
+---
+
+## 3. Task 2 — Optimized Photo & Image Management
+
+### 3.1 Pipeline
+Replace the Base64 path in `src/lib/uploadImage.ts` and `src/components/ui/ImageUploader.tsx`:
+
+```text
+File ─▶ Cropper (existing) ─▶ Canvas resize (max 800px long edge)
+      ─▶ canvas.toBlob('image/webp', 0.82)
+      ─▶ uploadBytesResumable(ref, blob, { contentType: 'image/webp', cacheControl: 'public,max-age=31536000,immutable' })
+      ─▶ getDownloadURL  ──▶ { url, path }
+```
+
+Quality target: ~50–120 KB for avatars (100–400px), ~150–300 KB for cover images (≤1200px).
+
+### 3.2 New / changed files
+- `src/lib/storage.ts` (new) — thin wrapper around Firebase Storage: `uploadWebp(file, folder, ownerId)`, `deleteByPath(path)`.
+- `src/lib/uploadImage.ts` — rewrite `uploadImageWithCompression` to:
+  1. Convert to WebP blob with the canvas pipeline above.
+  2. Upload to Storage at `${folder}/${ownerId ?? 'misc'}/${uuid}.webp`.
+  3. Return `{ url, path }` (caller persists both).
+- `ImageUploader.tsx` — `onUploadSuccess` becomes `(payload: { url: string; path: string }) => void`. Old `(url)` callers get a small shim during the transition.
+- Consumers (`AdminStudentsTab`, `AdminBlogTab`, `AdminUserManagement`, `TiptapEditor`) — persist `photoPath` alongside `photo`.
+
+### 3.3 Cleanup on replace
+When saving a student/admin/post:
+```ts
+if (next.photoPath && next.photoPath !== prev.photoPath && prev.photoPath?.startsWith('students/')) {
+  await deleteByPath(prev.photoPath); // best-effort, swallow 404
+}
+```
+Legacy Base64 `photo` values have no `photoPath` → cleanup is a no-op, safe to leave in place.
+
+### 3.4 Backwards compatibility
+`ImageWithFallback` already handles arbitrary URLs and `data:` strings. No reader changes needed.
+
+### 3.5 Storage rules (high level)
+```text
+match /students/{studentId}/{file=**} {
+  allow read: if true;
+  allow write: if request.auth != null && hasAdminClaim();
+}
 ```
 
 ---
 
-## 6. Files Touched
+## 4. Task 3 — Fix "Assign All Goals" Duplication
 
-| Path | Action |
-| --- | --- |
-| `src/lib/studentFields.ts` | new — blueprint + helpers |
-| `src/lib/types.ts` | add `extraData?` to `Student` |
-| `src/components/admin/AdminStudentsTab.tsx` | edit — render dynamic inputs |
-| `src/components/pages/StudentProfilePage.tsx` | edit — render `ExtraFieldsBlock` |
-| `src/components/pages/clients/StudentProfileClient.tsx` | edit — same, client island |
-| `src/lib/firebase/serverFetch.ts` | edit — strip non-public keys for public RSC |
+### 4.1 Root cause
+`AdminStudentsTab.tsx` currently does:
 
-No Firestore migration, no rules change, no new collections, no breaking changes to imports/exports.
+```ts
+const newAssignedGoals = [...student.assignedGoals, ...allMasterGoals.map(g => ({ goalId: g.id, completed: false }))];
+```
+
+No dedupe → clicking twice = 2× entries (181 → 362; one student in prod shows 354 because some goals existed already).
+
+### 4.2 Fix — single source of truth helper
+New file: `src/lib/assignGoals.ts`
+
+```ts
+export function mergeAssignments(
+  existing: AssignedGoal[],
+  goalIdsToAdd: string[],
+): AssignedGoal[] {
+  const byId = new Map(existing.map(a => [a.goalId, a]));
+  for (const id of goalIdsToAdd) {
+    if (!byId.has(id)) byId.set(id, { goalId: id, completed: false });
+  }
+  return Array.from(byId.values());
+}
+```
+
+All call sites (Assign-All, Assign-by-Category, Assign-by-Group, single Assign) go through this. Writes use `updateDoc({ assignedGoals: merged })` — we can't use `arrayUnion` directly because elements are objects (Firestore equality is structural and would still duplicate `{goalId, completed:false}` if `completed` differs).
+
+### 4.3 Mirror collection (`student_achievements`)
+If the achievement junction is also written on assign, use a deterministic doc id `${studentId}_${goalId}` with `setDoc(..., { merge: true })` so re-assigning is a no-op.
+
+### 4.4 Data healing
+New file: `src/lib/migrations/dedupeAssignedGoals.ts`
+
+- Iterate all `students`.
+- For each, collapse `assignedGoals` by `goalId`, **preferring the completed entry** when duplicates exist (keeps points history).
+- Write back only if length changed.
+- Log `{studentId, before, after}` to a `migrations/dedupe-assigned-goals-<date>` doc.
+
+Exposed as a one-click button in `AdminDatabaseTab` ("Heal duplicate goal assignments"), gated behind a confirm modal and `super_admin` role.
 
 ---
 
-## 7. Open Questions
+## 5. File Touch List
 
-1. **Date input** — OK with native `<input type="date">` (ISO `YYYY-MM-DD`), or do you want the existing `dd-MM-yyyy` text format like the example shows?
-2. **Editing the blueprint** — keep it as a code constant (developer edit + redeploy), or do you want the Phase 2 follow-up to expose a "Manage Fields" UI backed by a `settings/student_fields` Firestore doc?
-3. Should empty-value fields render as a dash in the admin view, or stay hidden like the public view? (Current plan: hidden in both.)
+| Path                                                | Action |
+| --------------------------------------------------- | ------ |
+| `src/lib/import/planImport.ts`                      | new    |
+| `src/lib/import/commitImport.ts`                    | new    |
+| `src/lib/import/schemas.ts`                         | new    |
+| `src/components/AdminImportExportTab.tsx`           | edit — wire Analyze/Commit modal |
+| `src/lib/storage.ts`                                | new    |
+| `src/lib/uploadImage.ts`                            | rewrite |
+| `src/components/ui/ImageUploader.tsx`               | edit — return `{url, path}` |
+| `src/components/admin/AdminStudentsTab.tsx`         | edit — use `mergeAssignments`, persist `photoPath` |
+| `src/components/admin/AdminBlogTab.tsx`             | edit — persist `photoPath` |
+| `src/components/admin/AdminUserManagement.tsx`      | edit — persist `photoPath` |
+| `src/lib/assignGoals.ts`                            | new    |
+| `src/lib/migrations/dedupeAssignedGoals.ts`         | new    |
+| `src/components/admin/AdminDatabaseTab.tsx`         | edit — Heal button |
+| `src/lib/types.ts`                                  | add `photoPath?: string` to `Student`, `AdminUser`, `Post` |
+| `firestore.rules` / `storage.rules`                 | edit — admin write for `students/**` storage path |
 
-Please confirm and I'll implement Phase 1 → 5 in order.
+---
+
+## 6. Verification & Testing
+
+### Task 1 — Import
+1. Export `students` CSV. Re-import unchanged → modal must show `0 created, 0 updated, N unchanged`.
+2. Edit one cell in 3 rows → re-import → `0 created, 3 updated`. Confirm in Firestore that only those fields changed and `assignedGoals` is untouched.
+3. Add 2 new rows without `id` → `2 created`. Confirm they have fresh UUIDs.
+4. Add a row with `groupId = "nope"` → row appears under `invalid`; commit is blocked.
+5. Delete a row from the CSV → re-import → record is NOT removed from Firestore (regression guard against destructive imports).
+
+### Task 2 — Images
+1. Upload a 4 MB JPEG → resulting Storage object is `.webp` and < 300 KB; download URL is saved on the student doc.
+2. Replace the photo → old Storage object is deleted (`getMetadata` returns 404); new URL is on the doc.
+3. Network tab: subsequent loads of the avatar hit Storage's CDN with `cache-control: immutable`.
+4. Legacy student with `data:image/...;base64` still renders.
+
+### Task 3 — Assignment
+1. Pick a fresh student, click "Assign All" once → `assignedGoals.length === master_goals.length`.
+2. Click "Assign All" again → length unchanged. No completed flags reset.
+3. Run the healing migration on a seeded student with duplicate entries (181 → 362) → ends at 181, completed goals preserved.
+4. Concurrent test: open the same student in two tabs, click Assign All in both. Final length is still equal to `master_goals.length` (the second write merges atomically because we read-merge-write inside a transaction).
+
+### Cross-cutting
+- `bunx tsc --noEmit` clean.
+- Manual smoke pass: admin tabs (Students, Goals, Import/Export, Database) render with no console errors.
+- Lighthouse: avatar-heavy pages (Leaderboard, Landing) show transfer-size reduction vs baseline.
+
+---
+
+## 7. Open Questions (please confirm before I start coding)
+
+1. **Storage bucket**: is the existing Firebase Storage bucket already enabled and admin-writable, or do you want me to add the `storage.rules` in the same PR?
+2. **Healing scope**: run the dedupe automatically on first admin login after deploy, or keep it strictly as a manual button in `AdminDatabaseTab`?
+3. **Image quality**: OK with `webp @ q=0.82, max 800px long edge` as the avatar default? (Roughly 60–120 KB.)
+4. **Import invalid rows**: should "ignore invalid rows" be allowed at all, or always block until the CSV is clean?
+
+Once you confirm, I'll implement in this order: Task 3 (smallest, highest-impact bug) → Task 2 (image pipeline) → Task 1 (import planner + UI).
